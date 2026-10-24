@@ -571,12 +571,13 @@ def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
     ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
-    # 1. BARRIDO CON HISTORIAL: 14 DÍAS HACIA ATRÁS Y 6 HACIA ADELANTE
+    # 1. BARRIDO RÁPIDO Y EFECTIVO: Ayer, Hoy, Mañana y los próximos 3 días
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
         
-        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-14, 7)]
+        # 5 días inmediatos: asegura que ningún partido del fin de semana se quede afuera por timeout
+        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 4)]
         
         for cod in codigos_a_escanear:
             for f_str in fechas_consulta:
