@@ -1,10 +1,9 @@
-<<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Motor de Radiografía & Alarmas Diarias</title>
-  <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
   <style>
@@ -12,21 +11,19 @@
     .nav-pills .nav-link.active { background-color: #0d6efd; }
     .card-match { border-radius: 12px; border: 1px solid #dee2e6; transition: transform 0.15s ease, box-shadow 0.15s ease; }
     .card-match:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-    .metric-table th, .metric-table td { padding: 4px 8px; font-size: 0.88rem; }
-    .sticky-summary { position: sticky; top: 20px; }
+    .metric-table th, .metric-table td { padding: 5px 6px; font-size: 0.85rem; }
+    .sub-head { font-size: 0.72rem; color: #6c757d; }
   </style>
 </head>
 <body class="py-4">
 
 <div class="container-fluid px-3 px-md-4">
-  <!-- ENCABEZADO PRINCIPAL -->
   <div class="text-center mb-4">
     <h2 class="fw-bold text-primary mb-1">
       ⚽ Motor de Radiografía & Alarmas Diarias
     </h2>
-    <p class="text-muted small mb-3">Auditoría estadística basada en partidos oficiales finalizados</p>
+    <p class="text-muted small mb-3">Métricas reales: Último encuentro disputado vs Promedio de 5 partidos</p>
     
-    <!-- PESTAÑAS PRINCIPALES -->
     <ul class="nav nav-pills justify-content-center gap-2" id="pills-tab" role="tablist">
       <li class="nav-item">
         <button class="nav-link active fw-bold" id="tab-alarmas" data-bs-toggle="pill" data-bs-target="#content-alarmas">
@@ -53,16 +50,13 @@
 
   <div class="tab-content" id="pills-tabContent">
     
-    <!-- ========================================== -->
-    <!-- 1. PESTAÑA ALARMAS DIARIAS                 -->
-    <!-- ========================================== -->
+    <!-- PESTAÑA ALARMAS -->
     <div class="tab-pane fade show active" id="content-alarmas" role="tabpanel">
-      <!-- BARRA DE CONTROL Y FILTROS -->
       <div class="card p-3 mb-4 shadow-sm border-0">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
           <div>
             <h5 class="fw-bold mb-0">Radar de Partidos (Hora Ecuador)</h5>
-            <small class="text-muted">Cartelera en juego, programados y finalizados</small>
+            <small class="text-muted">Horarios oficiales convertidos y auditoría en tiempo real</small>
           </div>
           <div class="d-flex gap-2">
             <button class="btn btn-primary fw-bold" id="btn-escanear" onclick="cargarAlarmas(true)">
@@ -73,30 +67,22 @@
 
         <hr class="my-3">
 
-        <!-- FILTROS POR FECHA -->
         <div class="d-flex flex-wrap align-items-center gap-2 overflow-auto py-1" id="contenedor-fechas">
           <button class="btn btn-sm btn-outline-primary active fw-bold" onclick="filtrarPorFecha('todos', this)">
             Todos (<span id="cont-todos">0</span>)
           </button>
-          <!-- Botones de fecha inyectados dinámicamente -->
         </div>
       </div>
 
-      <!-- SPINNER DE CARGA -->
       <div id="loading-spinner" class="text-center py-5 d-none">
         <div class="spinner-border text-primary" role="status"></div>
         <p class="text-muted mt-2">Consultando historial en Supabase y procesando métricas reales...</p>
       </div>
 
-      <!-- LISTA DE TARJETAS DE PARTIDOS -->
-      <div class="row g-3" id="lista-alarmas">
-        <!-- Tarjetas inyectadas vía JS -->
-      </div>
+      <div class="row g-3" id="lista-alarmas"></div>
     </div>
 
-    <!-- ========================================== -->
-    <!-- 2. PESTAÑA ANALIZAR MANUAL               -->
-    <!-- ========================================== -->
+    <!-- PESTAÑA ANALIZAR -->
     <div class="tab-pane fade" id="content-analizar" role="tabpanel">
       <div class="row justify-content-center">
         <div class="col-md-8 col-lg-6">
@@ -125,21 +111,19 @@
       </div>
     </div>
 
-    <!-- ========================================== -->
-    <!-- 3. PESTAÑA LIGAS & ENLACES                -->
-    <!-- ========================================== -->
+    <!-- PESTAÑA LIGAS -->
     <div class="tab-pane fade" id="content-ligas" role="tabpanel">
       <div class="row justify-content-center">
         <div class="col-md-8 col-lg-6">
           <div class="card p-4 shadow-sm border-0">
             <h5 class="fw-bold mb-3">Sincronizar Liga Específica</h5>
-            <p class="text-muted small">Descarga el historial de 15 días pasados para una liga específica en Supabase.</p>
+            <p class="text-muted small">Descarga partidos con cobertura retrospectiva de 15 días a Supabase.</p>
             <div class="mb-3">
-              <label class="form-label fw-bold small">Código de Liga o URL de ESPN (ej. eng.1, esp.1, eng.3)</label>
-              <input type="text" class="form-control" id="input-url-liga" placeholder="ej. eng.3">
+              <label class="form-label fw-bold small">Código de Liga o URL de ESPN (ej. ecu.1, eng.1, esp.1, eng.3)</label>
+              <input type="text" class="form-control" id="input-url-liga" placeholder="ej. ecu.1">
             </div>
             <div class="mb-3">
-              <label class="form-label fw-bold small">Fecha Base (Formato AAAAMMDD)</label>
+              <label class="form-label fw-bold small">Fecha Base (AAAAMMDD)</label>
               <input type="text" class="form-control" id="input-fecha-liga" value="{{ fecha_hoy }}">
             </div>
             <button class="btn btn-success w-100 fw-bold" onclick="sincronizarLiga()">Sincronizar Liga & Cargar Historial</button>
@@ -149,9 +133,7 @@
       </div>
     </div>
 
-    <!-- ========================================== -->
-    <!-- 4. PESTAÑA BOLETA (SIMULADOR PARLAY)      -->
-    <!-- ========================================== -->
+    <!-- PESTAÑA BOLETA -->
     <div class="tab-pane fade" id="content-boleta" role="tabpanel">
       <div class="row justify-content-center">
         <div class="col-md-9 col-lg-7">
@@ -177,7 +159,6 @@
   </div>
 </div>
 
-<!-- Bootstrap 5 JS Bundle -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
@@ -189,7 +170,6 @@
     actualizarEquiposLiga();
   });
 
-  // CARGAR ALARMAS DESDE LA API
   function cargarAlarmas(forzar) {
     const spinner = document.getElementById("loading-spinner");
     const contenedor = document.getElementById("lista-alarmas");
@@ -218,7 +198,6 @@
       });
   }
 
-  // RENDERIZAR BOTONES DE FECHA
   function construirBotonesFechas(partidos) {
     const fechasMap = {};
     partidos.forEach(p => {
@@ -242,7 +221,6 @@
     });
   }
 
-  // FILTRADO RÁPIDO
   function filtrarPorFecha(fecha, btnElement) {
     document.querySelectorAll("#contenedor-fechas button").forEach(b => {
       b.classList.remove("btn-outline-primary", "active");
@@ -259,7 +237,6 @@
     }
   }
 
-  // PINTAR LAS TARJETAS CON MÉTRICAS REALES (INCLUYE FUERAS DE JUEGO)
   function renderizarPartidos(partidos) {
     const contenedor = document.getElementById("lista-alarmas");
     if (!partidos || partidos.length === 0) {
@@ -274,10 +251,31 @@
         ? `<span class="badge bg-secondary">FINALIZADO (${p.marcador || '0 - 0'})</span>` 
         : `<span class="badge bg-primary">PROGRAMADO</span>`;
 
+      if (!p.hay_datos) {
+        html += `
+          <div class="col-md-6">
+            <div class="card card-match p-3 bg-white h-100 shadow-sm">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="badge bg-light text-dark border">${p.competicion_nombre}</span>
+                <small class="text-muted">🕒 ${p.hora_ecuador} (ECU)</small>
+              </div>
+              <h5 class="fw-bold my-2 text-dark">${p.local} vs ${p.visitante}</h5>
+              <div class="alert alert-warning py-2 small mb-0">${p.alerta_riesgo}</div>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const ultL = p.rad_l.ultimo;
+      const promL = p.rad_l.promedio;
+      const ultV = p.rad_v.ultimo;
+      const promV = p.rad_v.promedio;
+
       html += `
         <div class="col-md-6 col-lg-6">
-          <div class="card card-match p-3 bg-white h-100 shadow-sm">
-            <!-- CABECERA DE LIGA Y HORARIO -->
+          <div class="card card-match p-3 bg-white h-100 shadow-sm d-flex flex-column">
+            <!-- CABECERA -->
             <div class="d-flex justify-content-between align-items-center mb-2">
               <span class="badge bg-light text-dark border">${p.competicion_nombre}</span>
               <div class="d-flex align-items-center gap-2">
@@ -293,45 +291,61 @@
               <span class="badge bg-warning text-dark">Conf: ${p.confianza}/10</span>
             </div>
 
-            <!-- TABLA DE MÉTRICAS REALES DE CANCHA -->
+            <!-- DETALLE DEL ÚLTIMO PARTIDO JUGADO (ENFRENTAMIENTOS ANTERIORES) -->
+            <div class="d-flex justify-content-between small text-muted bg-light p-2 rounded mb-2 border">
+              <div><strong>Último ${p.local}:</strong> vs ${ultL.rival} <span class="badge bg-secondary">${ultL.marcador}</span></div>
+              <div><strong>Último ${p.visitante}:</strong> vs ${ultV.rival} <span class="badge bg-secondary">${ultV.marcador}</span></div>
+            </div>
+
+            <!-- TABLA COMPARATIVA: ÚLTIMO PARTIDO VS PROMEDIO 5 PJ -->
             <table class="table table-bordered table-sm text-center my-2 align-middle metric-table">
               <thead class="table-light">
                 <tr>
-                  <th class="text-start">Métrica Real BD</th>
-                  <th class="text-success">${p.local}</th>
-                  <th class="text-danger">${p.visitante}</th>
-                  <th class="text-primary">Total</th>
+                  <th class="text-start">Métrica Real</th>
+                  <th class="text-success" colspan="2">${p.local}</th>
+                  <th class="text-danger" colspan="2">${p.visitante}</th>
+                </tr>
+                <tr class="sub-head">
+                  <th class="text-start"></th>
+                  <th>Último</th>
+                  <th>Prom (5)</th>
+                  <th>Último</th>
+                  <th>Prom (5)</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td class="text-start fw-bold">⚽ Goles (Promedio)</td>
-                  <td>${p.stats?.gl_l ?? 0}</td>
-                  <td>${p.stats?.gl_v ?? 0}</td>
-                  <td class="fw-bold">${p.stats?.gl_tot ?? 0}</td>
+                  <td class="text-start fw-bold">⚽ Goles Anotados</td>
+                  <td class="fw-bold text-success">${ultL.gf}</td>
+                  <td>${promL.gf}</td>
+                  <td class="fw-bold text-danger">${ultV.gf}</td>
+                  <td>${promV.gf}</td>
                 </tr>
                 <tr>
-                  <td class="text-start fw-bold">🚩 Córners</td>
-                  <td>${p.stats?.crn_l ?? 0}</td>
-                  <td>${p.stats?.crn_v ?? 0}</td>
-                  <td class="fw-bold">${p.stats?.crn_tot ?? 0}</td>
+                  <td class="text-start fw-bold">🚩 Tiros de Esquina</td>
+                  <td class="fw-bold text-success">${ultL.c}</td>
+                  <td>${promL.c}</td>
+                  <td class="fw-bold text-danger">${ultV.c}</td>
+                  <td>${promV.c}</td>
                 </tr>
                 <tr>
-                  <td class="text-start fw-bold">🟨 Tarjetas</td>
-                  <td>${p.stats?.tar_l ?? 0}</td>
-                  <td>${p.stats?.tar_v ?? 0}</td>
-                  <td class="fw-bold">${p.stats?.tar_tot ?? 0}</td>
+                  <td class="text-start fw-bold">🟨 Tarjetas Recibidas</td>
+                  <td class="fw-bold text-success">${ultL.t}</td>
+                  <td>${promL.t}</td>
+                  <td class="fw-bold text-danger">${ultV.t}</td>
+                  <td>${promV.t}</td>
                 </tr>
                 <tr>
                   <td class="text-start fw-bold">🛑 Fueras de Juego</td>
-                  <td>${p.stats?.off_l ?? 0}</td>
-                  <td>${p.stats?.off_v ?? 0}</td>
-                  <td class="fw-bold">${p.stats?.off_tot ?? 0}</td>
+                  <td class="fw-bold text-success">${ultL.o}</td>
+                  <td>${promL.o}</td>
+                  <td class="fw-bold text-danger">${ultV.o}</td>
+                  <td>${promV.o}</td>
                 </tr>
               </tbody>
             </table>
 
-            <!-- RECOMENDACIÓN DIRECTA DE APUESTA -->
+            <!-- PRONÓSTICO DIRECTO -->
             <div class="alert alert-primary d-flex justify-content-between align-items-center py-2 px-3 my-2 mb-1">
               <div>
                 <strong class="d-block text-dark">🎯 ${p.mercado_recomendado}</strong>
@@ -342,7 +356,7 @@
 
             <small class="text-muted fst-italic mb-2 d-block">⚠️ ${p.alerta_riesgo}</small>
 
-            <!-- BOTÓN AGREGAR A LA BOLETA -->
+            <!-- BOTÓN BOLETA -->
             <button class="btn btn-outline-success w-100 fw-bold mt-auto" onclick="agregarABoleta('${p.fixture_id}')">
               ➕ Agregar a la Boleta
             </button>
@@ -354,7 +368,6 @@
     contenedor.innerHTML = html;
   }
 
-  // MANEJO DE LA BOLETA INTERACTIVA
   function agregarABoleta(fixId) {
     const match = todosLosPartidos.find(p => String(p.fixture_id) === String(fixId));
     if (!match) return;
@@ -415,7 +428,6 @@
     resumen.classList.remove("d-none");
   }
 
-  // EQUIPOS PARA ANÁLISIS MANUAL
   function actualizarEquiposLiga() {
     const liga = document.getElementById("select-liga-manual").value;
     const selLoc = document.getElementById("select-local-manual");
@@ -454,14 +466,18 @@
     })
     .then(r => r.json())
     .then(d => {
+      if (!d.hay_datos) {
+        resDiv.innerHTML = `<div class="alert alert-warning">${d.alerta_riesgo}</div>`;
+        return;
+      }
       resDiv.innerHTML = `
         <div class="card p-3 bg-light border">
           <h6 class="fw-bold mb-2">Auditoría Real: ${loc} vs ${vis}</h6>
           <div class="alert alert-success py-2 mb-2">
-            <strong>🎯 Selección:</strong> ${d.mercado}<br>
+            <strong>🎯 Mercado:</strong> ${d.mercado}<br>
             <strong>Cuota Justa:</strong> @${d.cuota_justa} | <strong>Probabilidad:</strong> ${d.probabilidad}%
           </div>
-          <small class="text-muted">⚽ Goles: ${d.gl_l} vs ${d.gl_v} | 🚩 Córners: ${d.crn_tot} | 🟨 Tarjetas: ${d.tar_tot} | 🛑 Offsides: ${d.off_tot}</small>
+          <small class="text-muted">Último ${loc}: vs ${d.rad_l.ultimo.rival} (${d.rad_l.ultimo.marcador}) | Último ${vis}: vs ${d.rad_v.ultimo.rival} (${d.rad_v.ultimo.marcador})</small>
         </div>
       `;
     })
@@ -470,7 +486,6 @@
     });
   }
 
-  // AGREGAR O SINCRONIZAR LIGA
   function sincronizarLiga() {
     const url = document.getElementById("input-url-liga").value.trim();
     const fecha = document.getElementById("input-fecha-liga").value.trim();

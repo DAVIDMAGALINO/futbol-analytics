@@ -58,7 +58,6 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 22 LIGAS OFICIALES CONSOLIDADAS
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -84,9 +83,6 @@ LIGAS_INICIALES = [
     ("bra.1", "Brasileirao Serie A", "Brasil")
 ]
 
-# ==============================================================================
-# CONEXIÓN A BASE DE DATOS SUPABASE DIRECTO
-# ==============================================================================
 def get_db_connection():
     env_url = os.environ.get("DATABASE_URL")
     if env_url and PG_DISPONIBLE:
@@ -237,11 +233,8 @@ def inicializar_bd():
 try:
     inicializar_bd()
 except Exception as e:
-    print(f"Aviso durante inicializar_bd: {e}")
+    print(f"Aviso inicializar_bd: {e}")
 
-# ==============================================================================
-# HORA ECUADOR (UTC-5)
-# ==============================================================================
 def formatear_fecha_hora_ecuador(valor_fecha):
     if not valor_fecha:
         return datetime.now().strftime("%Y-%m-%d"), "Por definir"
@@ -278,9 +271,6 @@ def formatear_fecha_hora_ecuador(valor_fecha):
     s_raw = str(valor_fecha)
     return s_raw[:10], "Por definir"
 
-# ==============================================================================
-# DESCARGA DE DATOS REALES ESPN (CÓRNERS, TARJETAS, OFFSIDES)
-# ==============================================================================
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HTTP_HEADERS)
     with urllib.request.urlopen(req, timeout=12) as resp:
@@ -381,123 +371,115 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         return 0, str(e)
 
 # ==============================================================================
-# AUDITORÍA DE REALIDAD PURA (SIN NÚMEROS INVENTADOS)
+# AUDITORÍA DE CANCHA: ÚLTIMO PARTIDO + PROMEDIO 5 ENCUENTROS
 # ==============================================================================
 def auditar_partido_flexible(competicion_id, local, visitante):
-    def obtener_historial_club(club, es_local):
-        if es_local:
-            filas = ejecutar_sql("""
-                SELECT goles_local AS gf, goles_visitante AS gc, 
-                       corners_local AS c, tarjetas_local AS t, offsides_local AS o
-                FROM partidos 
-                WHERE competicion_id = ? AND UPPER(local) = ? AND estado = 'finalizado'
-                ORDER BY fecha DESC LIMIT 5
-            """, (competicion_id, club.upper()), fetch="all")
-        else:
-            filas = ejecutar_sql("""
-                SELECT goles_visitante AS gf, goles_local AS gc, 
-                       corners_visitante AS c, tarjetas_visitante AS t, offsides_visitante AS o
-                FROM partidos 
-                WHERE competicion_id = ? AND UPPER(visitante) = ? AND estado = 'finalizado'
-                ORDER BY fecha DESC LIMIT 5
-            """, (competicion_id, club.upper()), fetch="all")
+    def obtener_radiografia_club(club):
+        filas = ejecutar_sql("""
+            SELECT 
+                fecha, local, visitante,
+                CASE WHEN UPPER(local) = ? THEN goles_local ELSE goles_visitante END AS gf,
+                CASE WHEN UPPER(local) = ? THEN goles_visitante ELSE goles_local END AS gc,
+                CASE WHEN UPPER(local) = ? THEN corners_local ELSE corners_visitante END AS c,
+                CASE WHEN UPPER(local) = ? THEN tarjetas_local ELSE tarjetas_visitante END AS t,
+                CASE WHEN UPPER(local) = ? THEN offsides_local ELSE offsides_visitante END AS o,
+                CASE WHEN UPPER(local) = ? THEN visitante ELSE local END AS rival,
+                CASE WHEN UPPER(local) = ? THEN (goles_local || ' - ' || goles_visitante) 
+                     ELSE (goles_visitante || ' - ' || goles_local) END AS marcador_perspectiva
+            FROM partidos 
+            WHERE (UPPER(local) = ? OR UPPER(visitante) = ?) AND estado = 'finalizado'
+            ORDER BY fecha DESC LIMIT 5
+        """, (club.upper(), club.upper(), club.upper(), club.upper(), club.upper(),
+              club.upper(), club.upper(), club.upper(), club.upper()), fetch="all")
 
         if not filas:
-            filas = ejecutar_sql("""
-                SELECT CASE WHEN UPPER(local) = ? THEN goles_local ELSE goles_visitante END AS gf,
-                       CASE WHEN UPPER(local) = ? THEN goles_visitante ELSE goles_local END AS gc,
-                       CASE WHEN UPPER(local) = ? THEN corners_local ELSE corners_visitante END AS c,
-                       CASE WHEN UPPER(local) = ? THEN tarjetas_local ELSE tarjetas_visitante END AS t,
-                       CASE WHEN UPPER(local) = ? THEN offsides_local ELSE offsides_visitante END AS o
-                FROM partidos 
-                WHERE competicion_id = ? AND (UPPER(local) = ? OR UPPER(visitante) = ?) AND estado = 'finalizado'
-                ORDER BY fecha DESC LIMIT 5
-            """, (club.upper(), club.upper(), club.upper(), club.upper(), club.upper(),
-                  competicion_id, club.upper(), club.upper()), fetch="all")
+            return None
 
-        return filas or []
-
-    hist_l = obtener_historial_club(local, True)
-    hist_v = obtener_historial_club(visitante, False)
-    nl, nv = len(hist_l), len(hist_v)
-
-    if nl == 0 or nv == 0:
-        return {
-            "n_local_bd": nl, "n_visitante_bd": nv,
-            "gl_l": 0, "gl_v": 0, "crn_l": 0, "crn_v": 0, "crn_tot": 0,
-            "tar_l": 0, "tar_v": 0, "tar_tot": 0, "off_l": 0, "off_v": 0, "off_tot": 0,
-            "indice_confianza": 4,
-            "alerta_riesgo": "Historial base: Faltan partidos finalizados previos en BD para calcular promedios reales.",
-            "mercado": "Esperando historial de partidos",
-            "probabilidad": 0,
-            "cuota_justa": 1.00,
-            "stake": "No operable"
+        ult = filas[0]
+        datos_ultimo = {
+            "rival": ult.get("rival", "Rival"),
+            "marcador": ult.get("marcador_perspectiva", "0 - 0"),
+            "gf": int(ult.get("gf") or 0),
+            "gc": int(ult.get("gc") or 0),
+            "c": int(ult.get("c") or 0),
+            "t": int(ult.get("t") or 0),
+            "o": int(ult.get("o") or 0)
         }
 
-    gl_l = round(sum(f["gf"] for f in hist_l) / nl, 2)
-    gl_v = round(sum(f["gf"] for f in hist_v) / nv, 2)
-    
-    gc_l = round(sum(f["gc"] for f in hist_l) / nl, 2)
-    gc_v = round(sum(f["gc"] for f in hist_v) / nv, 2)
+        n = len(filas)
+        promedios_5 = {
+            "pj": n,
+            "gf": round(sum(f.get("gf", 0) for f in filas) / n, 1),
+            "c": round(sum(f.get("c", 0) for f in filas) / n, 1),
+            "t": round(sum(f.get("t", 0) for f in filas) / n, 1),
+            "o": round(sum(f.get("o", 0) for f in filas) / n, 1)
+        }
 
-    crn_l = round(sum(f["c"] for f in hist_l) / nl, 1)
-    crn_v = round(sum(f["c"] for f in hist_v) / nv, 1)
-    crn_tot = round(crn_l + crn_v, 1)
+        return {"ultimo": datos_ultimo, "promedio": promedios_5}
 
-    tar_l = round(sum(f["t"] for f in hist_l) / nl, 1)
-    tar_v = round(sum(f["t"] for f in hist_v) / nv, 1)
-    tar_tot = round(tar_l + tar_v, 1)
+    rad_l = obtener_radiografia_club(local)
+    rad_v = obtener_radiografia_club(visitante)
 
-    off_l = round(sum(f["o"] for f in hist_l) / nl, 1)
-    off_v = round(sum(f["o"] for f in hist_v) / nv, 1)
-    off_tot = round(off_l + off_v, 1)
+    if not rad_l or not rad_v:
+        return {
+            "hay_datos": False,
+            "indice_confianza": 4,
+            "alerta_riesgo": "Esperando historial de partidos jugados en la base de datos.",
+            "mercado": "En recopilación",
+            "probabilidad": 0,
+            "cuota_justa": 1.00,
+            "stake": "No operable",
+            "rad_l": None, "rad_v": None
+        }
 
-    # Estimación de mercado según la realidad de juego
-    if gl_l <= 0.6 and gl_v <= 0.6:
-        mercado = "Menos de 2.5 Goles Totales"
-        prob = 74.0
-        cuota = 1.35
-    elif gl_l >= 1.5:
+    ult_l = rad_l["ultimo"]
+    ult_v = rad_v["ultimo"]
+    p5_l = rad_l["promedio"]
+    p5_v = rad_v["promedio"]
+
+    goles_prom_total = p5_l["gf"] + p5_v["gf"]
+    corners_prom_total = p5_l["c"] + p5_v["c"]
+    tarjetas_prom_total = p5_l["t"] + p5_v["t"]
+
+    if p5_l["gf"] >= 1.4 and ult_l["gf"] >= 1:
         mercado = f"{local}: Más de 0.5 Goles"
         prob = 80.0
         cuota = 1.25
-    elif gl_l >= 1.0 and gl_v >= 1.0:
-        mercado = "Más de 1.5 Goles Totales"
-        prob = 76.0
-        cuota = 1.32
-    elif crn_tot >= 8.5:
-        linea_crn = math.floor(crn_tot - 1.5) + 0.5
-        mercado = f"Más de {linea_crn} Córners Totales"
-        prob = 70.0
-        cuota = 1.42
-    elif tar_tot >= 4.5:
+    elif goles_prom_total <= 1.2 and ult_l["gf"] == 0 and ult_v["gf"] == 0:
+        mercado = "Menos de 2.5 Goles Totales"
+        prob = 75.0
+        cuota = 1.35
+    elif corners_prom_total >= 8.5:
+        linea = math.floor(corners_prom_total - 1.5) + 0.5
+        mercado = f"Más de {linea} Córners Totales"
+        prob = 72.0
+        cuota = 1.40
+    elif tarjetas_prom_total >= 4.5:
         mercado = "Más de 3.5 Tarjetas Totales"
         prob = 68.0
         cuota = 1.45
     else:
-        mercado = "Menos de 3.5 Goles Totales"
-        prob = 75.0
-        cuota = 1.30
+        mercado = "Más de 1.5 Goles Totales" if goles_prom_total >= 2.0 else "Menos de 3.5 Goles Totales"
+        prob = 70.0
+        cuota = 1.35
 
-    confianza = 8 if (nl + nv) >= 6 else 6
-    alerta = f"Métricas validadas con {nl + nv} partidos finalizados." if (nl + nv) >= 4 else f"Muestra corta ({nl + nv} partidos jugados)."
+    n_total = p5_l["pj"] + p5_v["pj"]
+    confianza = 8 if n_total >= 6 else 6
 
     return {
-        "n_local_bd": nl, "n_visitante_bd": nv,
-        "gl_l": gl_l, "gl_v": gl_v,
-        "crn_l": crn_l, "crn_v": crn_v, "crn_tot": crn_tot,
-        "tar_l": tar_l, "tar_v": tar_v, "tar_tot": tar_tot,
-        "off_l": off_l, "off_v": off_v, "off_tot": off_tot,
+        "hay_datos": True,
         "indice_confianza": confianza,
-        "alerta_riesgo": alerta,
+        "alerta_riesgo": f"Historial evaluado: {p5_l['pj']} PJ de {local} y {p5_v['pj']} PJ de {visitante}.",
         "mercado": mercado,
         "probabilidad": prob,
         "cuota_justa": cuota,
-        "stake": "Stake 2.5% - 3.0%"
+        "stake": "Stake 2.5% - 3.0%",
+        "rad_l": rad_l,
+        "rad_v": rad_v
     }
 
 # ==============================================================================
-# RUTAS WEB & ENDPOINTS API
+# RUTAS DE SERVICIO WEB
 # ==============================================================================
 @app.route('/')
 def home():
@@ -521,24 +503,6 @@ def api_equipos(liga):
     if not equipos:
         equipos = ["EQUIPO LOCAL", "EQUIPO VISITANTE"]
     return jsonify(equipos)
-
-@app.route('/api/partidos_guardados')
-def api_partidos_guardados():
-    filas = ejecutar_sql("""
-        SELECT p.fixture_id, p.competicion_id, c.nombre as competicion_nombre,
-               p.fecha, p.local, p.visitante, p.goles_local, p.goles_visitante,
-               p.corners_local, p.corners_visitante, p.tarjetas_local, p.tarjetas_visitante,
-               p.offsides_local, p.offsides_visitante, p.estado
-        FROM partidos p
-        LEFT JOIN competiciones c ON p.competicion_id = c.id
-        ORDER BY p.fecha DESC LIMIT 150
-    """, fetch="all") or []
-    
-    for r in filas:
-        f_ecu, h_ecu = formatear_fecha_hora_ecuador(r.get("fecha"))
-        r["fecha"] = f_ecu
-        r["hora_ecuador"] = h_ecu
-    return jsonify({"success": True, "partidos": filas})
 
 @app.route('/api/alarmas_hoy')
 def api_alarmas_hoy():
@@ -594,22 +558,9 @@ def api_alarmas_hoy():
             "probabilidad": res["probabilidad"],
             "cuota_justa": res["cuota_justa"],
             "stake": res["stake"],
-            "stats": {
-                "gl_l": res["gl_l"],
-                "gl_v": res["gl_v"],
-                "gl_tot": round(res["gl_l"] + res["gl_v"], 2),
-                "crn_l": res["crn_l"],
-                "crn_v": res["crn_v"],
-                "crn_tot": res["crn_tot"],
-                "tar_l": res["tar_l"],
-                "tar_v": res["tar_v"],
-                "tar_tot": res["tar_tot"],
-                "off_l": res["off_l"],
-                "off_v": res["off_v"],
-                "off_tot": res["off_tot"],
-                "n_l": res["n_local_bd"],
-                "n_v": res["n_visitante_bd"]
-            }
+            "hay_datos": res["hay_datos"],
+            "rad_l": res["rad_l"],
+            "rad_v": res["rad_v"]
         })
 
     return jsonify({"success": True, "alarmas": alarmas})
