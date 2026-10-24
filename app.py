@@ -54,6 +54,7 @@ DICCIONARIO_LIGAS = {
     "europa league": "uefa.europa", "uefa.europa": "uefa.europa",
     "conference": "uefa.europa.conf", "conference league": "uefa.europa.conf", "uefa.europa.conf": "uefa.europa.conf",
     "league one": "eng.3", "eng.3": "eng.3",
+    "championship": "eng.2", "eng.2": "eng.2", "efl championship": "eng.2",
     "libertadores": "conmebol.libertadores", "conmebol.libertadores": "conmebol.libertadores",
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
@@ -80,6 +81,7 @@ LIGAS_INICIALES = [
     ("bol.1", "División Profesional Bolivia", "Bolivia"),
     ("per.1", "Liga 1 Perú", "Perú"),
     ("aus.1", "A-League Australia", "Australia"),
+    ("eng.2", "EFL Championship", "Inglaterra"),
     ("bra.1", "Brasileirao Serie A", "Brasil")
 ]
 
