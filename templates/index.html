@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!D<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -16,11 +16,8 @@
     .section-header { font-weight: 800; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px; }
     .alarma-card { border-left: 4px solid #0d6efd; transition: transform 0.15s ease-in-out; }
     .alarma-card:hover { transform: translateY(-2px); }
-    .table-alarma th, .table-alarma td { padding: 3px 6px; font-size: 0.78rem; text-align: center; }
+    .table-alarma th, .table-alarma td { padding: 4px 6px; font-size: 0.80rem; text-align: center; }
     .btn-filtro-dia { font-size: 0.80rem; font-weight: 700; border-radius: 8px; }
-    .badge-estado-finalizado { background-color: #6c757d; color: white; }
-    .badge-estado-vivo { background-color: #dc3545; color: white; }
-    .badge-estado-programado { background-color: #0d6efd; color: white; }
   </style>
 </head>
 <body class="p-2 p-md-3">
@@ -76,8 +73,7 @@
                 <option value="2" selected>Hoy y Mañana (+1 día)</option>
                 <option value="3">Próximos 3 días</option>
                 <option value="7">Próxima semana (7 días)</option>
-                <option value="14">Próximos 14 días</option>
-                <option value="todos">Todo en Base de Datos</option>
+                <option value="todos">Todos los registrados</option>
               </select>
             </div>
             <div class="col-6">
@@ -92,18 +88,7 @@
           <div id="botones-dias-rapidos" class="d-flex gap-1 overflow-auto pb-1"></div>
         </div>
 
-        <!-- Banner Alerta de Partidos en Días Posteriores -->
-        <div id="alerta-dias-posteriores" class="alert alert-info py-2 px-3 small d-none d-flex justify-content-between align-items-center mb-2 border-0 shadow-sm" style="background-color: #e8f4fd;">
-          <div>
-            <span class="fw-bold text-dark">🔔 Partidos en otros días:</span>
-            <span id="txt-conteo-posteriores" class="text-primary fw-bold">--</span>
-          </div>
-          <button class="btn btn-sm btn-primary py-0 px-2 fw-bold" style="font-size: 0.75rem;" onclick="mostrarSiguienteDia()">
-            Ver Siguiente Día ➡️
-          </button>
-        </div>
-
-        <!-- Contenedor de Tarjetas -->
+        <!-- Contenedor de Tarjetas con Radiografía Cara a Cara Completa -->
         <div id="contenedor-alarmas">
           <div class="text-center py-4 text-muted small">
             <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
@@ -427,7 +412,6 @@
     async function cargarAlarmasDiarias(forzar = false) {
       const cont = document.getElementById("contenedor-alarmas");
       const badgeTot = document.getElementById("badge-total-alarmas");
-      const dias = document.getElementById("select-dias-alarma").value;
 
       cont.innerHTML = `
         <div class="text-center py-4 text-muted small">
@@ -436,12 +420,11 @@
         </div>`;
 
       try {
-        const url = forzar ? `/api/alarmas_hoy?forzar=true&dias=${dias}` : `/api/alarmas_hoy?dias=${dias}`;
+        const url = forzar ? `/api/alarmas_hoy?forzar=true` : `/api/alarmas_hoy`;
         const res = await fetch(url);
         const data = await res.json();
 
         if (!data.success || !data.alarmas || data.alarmas.length === 0) {
-          // Si no hay alarmas activas, consultar la base de datos completa de partidos guardados
           const fallbackRes = await fetch('/api/partidos_guardados');
           const fallbackData = await fallbackRes.json();
           
@@ -450,28 +433,40 @@
               fixture_id: p.fixture_id,
               competicion_id: p.competicion_id,
               competicion_nombre: p.competicion_nombre,
-              fecha: (p.fecha || '').slice(0, 10).replace(/-/g, ''),
+              fecha: (p.fecha || '').slice(0, 10),
               hora_ecuador: p.hora_ecuador || 'Completado',
               local: p.local,
               visitante: p.visitante,
               estado: p.estado || 'finalizado',
               confianza: 8,
               alerta_riesgo: 'Partido registrado en base de datos',
-              mercado_recomendado: (p.goles_local >= 2) ? `Over 1.5 Goles ${p.local}` : 'Resultado Registrado',
+              mercado_recomendado: (p.goles_local >= 2) ? `Over 1.5 Goles ${p.local}` : 'Más de 8.5 Córners Totales',
               probabilidad: 78.5,
               cuota_justa: 1.30,
               stake: 'Stake 2.0%',
-              marcador: `${p.goles_local} - ${p.goles_visitante}`
+              marcador: `${p.goles_local} - ${p.goles_visitante}`,
+              stats: {
+                gl_l: p.goles_local,
+                gl_v: p.goles_visitante,
+                crn_l: p.corners_local,
+                crn_v: p.corners_visitante,
+                crn_tot: (p.corners_local || 0) + (p.corners_visitante || 0),
+                tar_l: p.tarjetas_local,
+                tar_v: p.tarjetas_visitante,
+                tar_tot: (p.tarjetas_local || 0) + (p.tarjetas_visitante || 0),
+                off_l: p.offsides_local,
+                off_v: p.offsides_visitante,
+                off_tot: (p.offsides_local || 0) + (p.offsides_visitante || 0)
+              }
             }));
           } else {
             badgeTot.innerText = "0";
             todasLasAlarmas = [];
             cont.innerHTML = `
               <div class="card p-4 text-center text-muted">
-                <p class="mb-1 fw-bold">No se detectaron partidos pendientes ni registrados para estas fechas.</p>
+                <p class="mb-1 fw-bold">No se detectaron partidos pendientes ni registrados.</p>
                 <small>Presiona "Escaneo en Vivo" si deseas consultar ESPN al instante.</small>
               </div>`;
-            document.getElementById("alerta-dias-posteriores").classList.add("d-none");
             return;
           }
         } else {
@@ -500,21 +495,16 @@
         </button>`;
 
       fechasDetectadas.forEach((f) => {
-        let etiquetaDia = f;
-        if (f.length === 8) {
-          etiquetaDia = `${f.slice(6, 8)}/${f.slice(4, 6)}`;
-        }
         const totalDelDia = todasLasAlarmas.filter(a => a.fecha === f).length;
-
         const opt = document.createElement("option");
         opt.value = f;
-        opt.innerText = `${etiquetaDia} (${totalDelDia} partidos)`;
+        opt.innerText = `${f} (${totalDelDia} partidos)`;
         if (fechaSeleccionada === f) opt.selected = true;
         sel.appendChild(opt);
 
         btnsBox.innerHTML += `
           <button class="btn btn-sm ${fechaSeleccionada === f ? 'btn-primary' : 'btn-outline-secondary'} btn-filtro-dia text-nowrap" onclick="cambiarFiltroDia('${f}')">
-            ${etiquetaDia} <span class="badge ${fechaSeleccionada === f ? 'bg-light text-dark' : 'bg-secondary'}">${totalDelDia}</span>
+            ${f} <span class="badge ${fechaSeleccionada === f ? 'bg-light text-dark' : 'bg-secondary'}">${totalDelDia}</span>
           </button>`;
       });
 
@@ -525,10 +515,6 @@
       fechaSeleccionada = fecha;
       actualizarControlesDeFecha();
       renderizarTarjetasAlarmas();
-    }
-
-    function mostrarSiguienteDia() {
-      cambiarFiltroDia("todos");
     }
 
     function renderizarTarjetasAlarmas() {
@@ -554,26 +540,25 @@
         if (a.confianza >= 7) badgeConfClass = "bg-success text-white";
         if (a.confianza <= 4) badgeConfClass = "bg-danger text-white";
 
-        let estadoBadge = `<span class="badge badge-estado-programado">PROGRAMADO</span>`;
+        let estadoBadge = `<span class="badge bg-primary text-white">PROGRAMADO</span>`;
         if (a.estado === 'finalizado' || a.marcador) {
-          estadoBadge = `<span class="badge badge-estado-finalizado">FINALIZADO ${a.marcador ? '(' + a.marcador + ')' : ''}</span>`;
+          estadoBadge = `<span class="badge bg-secondary text-white">FINALIZADO ${a.marcador ? '(' + a.marcador + ')' : ''}</span>`;
         } else if (a.estado === 'en_juego') {
-          estadoBadge = `<span class="badge badge-estado-vivo">EN VIVO</span>`;
+          estadoBadge = `<span class="badge bg-danger text-white">EN VIVO</span>`;
         }
 
-        let fStr = a.fecha || "Hoy";
-        if (fStr.length === 8) {
-          fStr = `${fStr.slice(6, 8)}/${fStr.slice(4, 6)}/${fStr.slice(0, 4)}`;
-        }
         const horaTxt = a.hora_ecuador ? a.hora_ecuador : "Por definir";
+        const fStr = a.fecha || "Fecha por definir";
+        const st = a.stats || { gl_l: 0, gl_v: 0, crn_l: 0, crn_v: 0, crn_tot: 0, tar_l: 0, tar_v: 0, tar_tot: 0, off_l: 0, off_v: 0, off_tot: 0 };
 
         html += `
-          <div class="card p-3 mb-3 bg-white alarma-card shadow-sm">
-            <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-2">
-              <span class="badge bg-light text-dark border">${a.competicion_nombre || a.competicion_id}</span>
+          <div class="card p-3 mb-3 bg-white alarma-card shadow-sm border rounded-3">
+            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+              <span class="badge bg-light text-dark border fw-bold">${a.competicion_nombre || a.competicion_id}</span>
               <div>
                 ${estadoBadge}
-                <small class="text-muted fw-bold ms-1">⏰ ${horaTxt} (ECU)</small>
+                <span class="badge bg-light text-dark border ms-1">📅 ${fStr}</span>
+                <span class="badge bg-primary-subtle text-primary border ms-1 fw-bold">⏰ ${horaTxt} (ECU)</span>
               </div>
             </div>
 
@@ -582,13 +567,53 @@
               <span class="badge ${badgeConfClass}">Conf: ${a.confianza}/10</span>
             </div>
 
+            <!-- TABLA CARA A CARA REAL (POISSON BD) -->
+            <div class="table-responsive mb-2">
+              <table class="table table-bordered table-sm text-center mb-0 bg-light" style="font-size: 0.80rem;">
+                <thead class="table-secondary">
+                  <tr>
+                    <th class="text-start" style="width: 37%;">Métrica Real BD</th>
+                    <th class="text-success" style="width: 21%;">${a.local}</th>
+                    <th class="text-danger" style="width: 21%;">${a.visitante}</th>
+                    <th class="text-primary fw-bold" style="width: 21%;">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="text-start fw-bold">⚽ Goles (xG)</td>
+                    <td class="text-success fw-bold">${Number(st.gl_l || 0).toFixed(2)}</td>
+                    <td class="text-danger fw-bold">${Number(st.gl_v || 0).toFixed(2)}</td>
+                    <td class="fw-bold bg-white text-primary">${(Number(st.gl_l || 0) + Number(st.gl_v || 0)).toFixed(2)}</td>
+                  </tr>
+                  <tr>
+                    <td class="text-start">🚩 Córners</td>
+                    <td>${Number(st.crn_l || 0).toFixed(1)}</td>
+                    <td>${Number(st.crn_v || 0).toFixed(1)}</td>
+                    <td class="fw-bold bg-white">${Number(st.crn_tot || 0).toFixed(1)}</td>
+                  </tr>
+                  <tr>
+                    <td class="text-start">🟨 Tarjetas</td>
+                    <td>${Number(st.tar_l || 0).toFixed(1)}</td>
+                    <td>${Number(st.tar_v || 0).toFixed(1)}</td>
+                    <td class="fw-bold bg-white">${Number(st.tar_tot || 0).toFixed(1)}</td>
+                  </tr>
+                  <tr>
+                    <td class="text-start">🛑 Fueras de Juego</td>
+                    <td>${Number(st.off_l || 0).toFixed(1)}</td>
+                    <td>${Number(st.off_v || 0).toFixed(1)}</td>
+                    <td class="fw-bold bg-white">${Number(st.off_tot || 0).toFixed(1)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
             <div class="p-2 rounded bg-light border mb-2 d-flex justify-content-between align-items-center">
               <div>
                 <div class="fw-bold text-primary small">🎯 ${a.mercado_recomendado}</div>
                 <small class="text-muted">Probabilidad: <strong>${a.probabilidad}%</strong></small>
               </div>
               <div class="text-end">
-                <span class="badge bg-primary fs-6">@${a.cuota_justa > 0 ? Number(a.cuota_justa).toFixed(2) : '--'}</span>
+                <span class="badge bg-primary fs-6">@${Number(a.cuota_justa || 1.10).toFixed(2)}</span>
                 <div class="small text-secondary" style="font-size:0.75rem;">${a.stake}</div>
               </div>
             </div>

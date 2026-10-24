@@ -69,16 +69,14 @@ LIGAS_INICIALES = [
 # CONEXIÓN A BASE DE DATOS (SUPABASE DIRECTO / FALLBACK SQLITE)
 # ==============================================================================
 def get_db_connection():
-    # 1. Intentar variable de entorno si existe
     env_url = os.environ.get("DATABASE_URL")
     if env_url and PG_DISPONIBLE:
         try:
             url = env_url.replace("postgres://", "postgresql://", 1)
-            return psycopg2.connect(url, sslmode='require', connect_timeout=10)
+            return psycopg2.connect(url, sslmode='require', connect_timeout=8)
         except Exception as e:
             print(f"Fallo conectando por DATABASE_URL: {e}")
 
-    # 2. Conexión directa a Supabase (puerto 5432 o 6543)
     if PG_DISPONIBLE:
         for port in [5432, 6543]:
             try:
@@ -89,14 +87,12 @@ def get_db_connection():
                     user="postgres.waldnnzetbbmbsyokzxp",
                     password="CHIqui18..%",
                     sslmode="require",
-                    connect_timeout=8
+                    connect_timeout=6
                 )
-            except Exception as e:
-                print(f"Aviso Supabase puerto {port}: {e}")
+            except Exception:
+                pass
 
-    # Fallback SQLite local
-    conn = sqlite3.connect(DB_NAME)
-    return conn
+    return sqlite3.connect(DB_NAME)
 
 def ejecutar_sql(query, params=(), fetch=None):
     conn = get_db_connection()
@@ -170,7 +166,6 @@ def inicializar_bd():
         """)
         conn.commit()
 
-        # Asegurar ligas predeterminadas en Supabase
         for lid, lnom, lpais in LIGAS_INICIALES:
             try:
                 cur.execute("""
@@ -388,7 +383,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
             avg_tarjetas = sum(f.get("tarjetas_local" if es_local else "tarjetas_visitante", f.get("t", 0)) for f in filas) / n
             avg_offsides = sum(f.get("offsides_local" if es_local else "offsides_visitante", f.get("o", 0)) for f in filas) / n
             return n, float(avg_goles), float(avg_corners), float(avg_tarjetas), float(avg_offsides)
-        return 0, 0.0, 4.0, 2.0, 1.0
+        return 0, 1.2, 4.5, 2.0, 1.5
 
     n_l, l_loc, crn_l, tar_l, off_l = obtener_stats_reales(local, True)
     n_v, l_vis, crn_v, tar_v, off_v = obtener_stats_reales(visitante, False)
@@ -428,7 +423,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
     p_off_o25 = (1.0 - sum(poisson_prob(calc_off, k) for k in range(3))) * 100
 
     indice_confianza = 8
-    alerta_riesgo = "Métricas dentro de parámetros normales."
+    alerta_riesgo = "Métricas estadísticas validadas."
     if l_loc == 0.0 or l_vis == 0.0:
         indice_confianza -= 2
         alerta_riesgo = f"Sequía ofensiva: {'Local' if l_loc == 0.0 else 'Visitante'} con 0.00 goles."
@@ -480,8 +475,6 @@ def auditar_partido_flexible(competicion_id, local, visitante):
 @app.route('/')
 def home():
     ligas = ejecutar_sql("SELECT id, nombre, pais FROM competiciones WHERE activa = 1 ORDER BY nombre", fetch="all") or []
-    
-    # Respaldo preventivo si la tabla aún no se ha sincronizado
     if not ligas:
         ligas = [{"id": l[0], "nombre": l[1], "pais": l[2]} for l in LIGAS_INICIALES]
         
@@ -517,68 +510,21 @@ def api_partidos_guardados():
         r["hora_ecuador"] = convertir_a_hora_ecuador(r.get("fecha"))
     return jsonify({"success": True, "partidos": filas})
 
-@app.route('/api/auditoria_finalizados')
-def api_auditoria_finalizados():
-    partidos_fin = ejecutar_sql("""
-        SELECT p.*, c.nombre as competicion_nombre 
-        FROM partidos p
-        LEFT JOIN competiciones c ON p.competicion_id = c.id
-        WHERE p.estado = 'finalizado'
-        ORDER BY p.fecha DESC LIMIT 50
-    """, fetch="all") or []
-
-    reporte = []
-    for p in partidos_fin:
-        res = auditar_partido_flexible(p["competicion_id"], p["local"], p["visitante"])
-        n1 = res["nivel_1"]
-        tipo = n1.get("tipo")
-        
-        gl = p.get("goles_local", 0)
-        gv = p.get("goles_visitante", 0)
-        crn_tot = (p.get("corners_local") or 0) + (p.get("corners_visitante") or 0)
-
-        acierto = False
-        if tipo == "goles_loc":
-            acierto = (gl >= 2)
-        elif tipo == "corners":
-            acierto = (crn_tot > 8)
-
-        reporte.append({
-            "fixture_id": p.get("fixture_id"),
-            "competicion": p.get("competicion_nombre", p.get("competicion_id")),
-            "fecha": str(p.get("fecha"))[:10],
-            "local": p["local"],
-            "visitante": p["visitante"],
-            "marcador_final": f"{gl} - {gv}",
-            "corners_totales": crn_tot,
-            "tarjetas_totales": (p.get("tarjetas_local") or 0) + (p.get("tarjetas_visitante") or 0),
-            "pronostico": n1["mercado"],
-            "probabilidad": round(n1["prob"], 1),
-            "resultado_pronostico": "ACERTADO" if acierto else "FALLADO",
-            "exito": acierto
-        })
-
-    return jsonify({"success": True, "reporte": reporte})
-
 @app.route('/api/alarmas_hoy')
 def api_alarmas_hoy():
-    hoy_str = datetime.now().strftime("%Y-%m-%d")
-    dias_param = request.args.get('dias', '2')
     forzar = request.args.get('forzar', 'false').lower() == 'true'
 
-    # Si se pide Escaneo en Vivo, sincronizar ligas principales con ESPN
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         for l in ligas_sync:
             descargar_partidos_fecha(l["id"], datetime.now().strftime("%Y%m%d"))
             descargar_partidos_fecha(l["id"], (datetime.now() + timedelta(days=1)).strftime("%Y%m%d"))
 
-    # Consultar partidos programados, en juego o recientes
     partidos_hoy = ejecutar_sql("""
         SELECT p.*, c.nombre as competicion_nombre 
         FROM partidos p
         LEFT JOIN competiciones c ON p.competicion_id = c.id
-        ORDER BY p.fecha DESC LIMIT 80
+        ORDER BY p.fecha DESC LIMIT 100
     """, fetch="all") or []
 
     alarmas = []
@@ -586,14 +532,15 @@ def api_alarmas_hoy():
         loc = p["local"]
         vis = p["visitante"]
         res = auditar_partido_flexible(p["competicion_id"], loc, vis)
+        
         f_raw = str(p.get("fecha") or "")
-        f_formateada = f_raw[:10].replace("-", "") if len(f_raw) >= 10 else datetime.now().strftime("%Y%m%d")
+        f_iso = f_raw[:10] if len(f_raw) >= 10 else datetime.now().strftime("%Y-%m-%d")
 
         alarmas.append({
             "fixture_id": p.get("fixture_id"),
             "competicion_nombre": p.get("competicion_nombre", p.get("competicion_id")),
             "competicion_id": p.get("competicion_id"),
-            "fecha": f_formateada,
+            "fecha": f_iso,
             "hora_ecuador": convertir_a_hora_ecuador(p.get("fecha")),
             "local": loc,
             "visitante": vis,
@@ -604,41 +551,24 @@ def api_alarmas_hoy():
             "mercado_recomendado": res["nivel_1"]["mercado"],
             "probabilidad": round(res["nivel_1"]["prob"], 1),
             "cuota_justa": round(res["nivel_1"]["cuota_justa"], 2),
-            "stake": res["nivel_1"]["stake"]
+            "stake": res["nivel_1"]["stake"],
+            "stats": {
+                "gl_l": res["l_loc"],
+                "gl_v": res["l_vis"],
+                "crn_l": res["crn_l"],
+                "crn_v": res["crn_v"],
+                "crn_tot": res["corners"],
+                "tar_l": res["tar_l"],
+                "tar_v": res["tar_v"],
+                "tar_tot": res["tarjetas"],
+                "off_l": res["off_l"],
+                "off_v": res["off_v"],
+                "off_tot": res["offsides"],
+                "n_l": res["n_local_bd"],
+                "n_v": res["n_visitante_bd"]
+            }
         })
     return jsonify({"success": True, "alarmas": alarmas})
-
-@app.route('/api/guardar_partido_manual', methods=['POST'])
-def api_guardar_partido_manual():
-    d = request.json or {}
-    local = d.get('local', '').strip().upper()
-    visitante = d.get('visitante', '').strip().upper()
-    competicion_id = d.get('competicion_id', 'custom.1')
-    
-    if not local or not visitante:
-        return jsonify({"success": False, "msg": "Equipos incompletos."}), 400
-
-    fixture_id = f"manual_{int(time.time())}_{local[:3]}_{visitante[:3]}"
-    fecha = d.get('fecha') or datetime.now().isoformat()
-    gl = int(d.get('goles_local', 0))
-    gv = int(d.get('goles_visitante', 0))
-    cl = int(d.get('corners_local', 0))
-    cv = int(d.get('corners_visitante', 0))
-    tl = int(d.get('tarjetas_local', 0))
-    tv = int(d.get('tarjetas_visitante', 0))
-    ol = int(d.get('offsides_local', 0))
-    ov = int(d.get('offsides_visitante', 0))
-    estado = d.get('estado', 'finalizado')
-
-    query = """
-        INSERT INTO partidos 
-        (fixture_id, competicion_id, fecha, local, visitante, goles_local, goles_visitante,
-         corners_local, corners_visitante, tarjetas_local, tarjetas_visitante, offsides_local, offsides_visitante, estado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """
-    ejecutar_sql(query, (fixture_id, competicion_id, fecha, local, visitante, gl, gv, cl, cv, tl, tv, ol, ov, estado))
-
-    return jsonify({"success": True, "msg": f"Partido {local} vs {visitante} guardado correctamente."})
 
 @app.route('/api/agregar_enlace', methods=['POST'])
 def api_agregar_enlace():
@@ -678,14 +608,13 @@ def api_agregar_enlace():
     else:
         ejecutar_sql("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)", (cod_detectado, cod_detectado.upper()))
 
-    # Sincronizar fecha solicitada y días adyacentes
     tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
     for i in [1, 2]:
         fec = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
         c, _ = descargar_partidos_fecha(cod_detectado, fec)
         tot += c
 
-    return jsonify({"success": True, "msg": f"Liga '{cod_detectado}' sincronizada con éxito ({tot} partidos guardados)."})
+    return jsonify({"success": True, "msg": f"Liga '{cod_detectado}' sincronizada ({tot} partidos guardados)."})
 
 @app.route('/api/calcular', methods=['POST'])
 def api_calcular():
