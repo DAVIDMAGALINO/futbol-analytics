@@ -1,4 +1,4 @@
-imporimport os
+import os
 import sqlite3
 import math
 import json
@@ -58,7 +58,7 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 22 LIGAS CONSOLIDADAS
+# 22 LIGAS OFICIALES CONSOLIDADAS
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -85,7 +85,7 @@ LIGAS_INICIALES = [
 ]
 
 # ==============================================================================
-# CONEXIÓN A BASE DE DATOS SUPABASE
+# CONEXIÓN A BASE DE DATOS SUPABASE DIRECTO
 # ==============================================================================
 def get_db_connection():
     env_url = os.environ.get("DATABASE_URL")
@@ -240,7 +240,7 @@ except Exception as e:
     print(f"Aviso durante inicializar_bd: {e}")
 
 # ==============================================================================
-# HORA EXACTA ECUADOR (UTC-5)
+# HORA ECUADOR (UTC-5)
 # ==============================================================================
 def formatear_fecha_hora_ecuador(valor_fecha):
     if not valor_fecha:
@@ -384,7 +384,6 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
 # AUDITORÍA DE REALIDAD PURA (SIN NÚMEROS INVENTADOS)
 # ==============================================================================
 def auditar_partido_flexible(competicion_id, local, visitante):
-    # Consulta únicamente partidos REALMENTE FINALIZADOS
     def obtener_historial_club(club, es_local):
         if es_local:
             filas = ejecutar_sql("""
@@ -403,7 +402,6 @@ def auditar_partido_flexible(competicion_id, local, visitante):
                 ORDER BY fecha DESC LIMIT 5
             """, (competicion_id, club.upper()), fetch="all")
 
-        # Si no tiene registros en su condición de local/visita, busca sus últimos partidos en general
         if not filas:
             filas = ejecutar_sql("""
                 SELECT CASE WHEN UPPER(local) = ? THEN goles_local ELSE goles_visitante END AS gf,
@@ -423,7 +421,6 @@ def auditar_partido_flexible(competicion_id, local, visitante):
     hist_v = obtener_historial_club(visitante, False)
     nl, nv = len(hist_l), len(hist_v)
 
-    # 1. Si no hay partidos finalizados en la BD, no se inventa nada
     if nl == 0 or nv == 0:
         return {
             "n_local_bd": nl, "n_visitante_bd": nv,
@@ -437,7 +434,6 @@ def auditar_partido_flexible(competicion_id, local, visitante):
             "stake": "No operable"
         }
 
-    # 2. Promedios aritméticos reales de lo jugado
     gl_l = round(sum(f["gf"] for f in hist_l) / nl, 2)
     gl_v = round(sum(f["gf"] for f in hist_v) / nv, 2)
     
@@ -456,31 +452,24 @@ def auditar_partido_flexible(competicion_id, local, visitante):
     off_v = round(sum(f["o"] for f in hist_v) / nv, 1)
     off_tot = round(off_l + off_v, 1)
 
-    # 3. Estimación fiel a los hechos
-    goles_esperados_totales = (gl_l + gc_v + gl_v + gc_l) / 2.0
-
-    # Si ambos tienen sequía de goles (menos de 0.8 goles por partido)
+    # Estimación de mercado según la realidad de juego
     if gl_l <= 0.6 and gl_v <= 0.6:
         mercado = "Menos de 2.5 Goles Totales"
         prob = 74.0
         cuota = 1.35
-    # Si al menos el local viene anotando con solvencia
     elif gl_l >= 1.5:
         mercado = f"{local}: Más de 0.5 Goles"
         prob = 80.0
         cuota = 1.25
-    # Si ambos son goleadores y reciben goles
     elif gl_l >= 1.0 and gl_v >= 1.0:
         mercado = "Más de 1.5 Goles Totales"
         prob = 76.0
         cuota = 1.32
-    # Si los córners son la métrica dominante
     elif crn_tot >= 8.5:
         linea_crn = math.floor(crn_tot - 1.5) + 0.5
         mercado = f"Más de {linea_crn} Córners Totales"
         prob = 70.0
         cuota = 1.42
-    # Si es un partido trabado y con muchas tarjetas
     elif tar_tot >= 4.5:
         mercado = "Más de 3.5 Tarjetas Totales"
         prob = 68.0
@@ -556,7 +545,6 @@ def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
     ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
-    # 15 DÍAS HACIA ATRÁS (HISTORIAL REAL) Y 4 DÍAS HACIA ADELANTE (PROGRAMADOS)
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
