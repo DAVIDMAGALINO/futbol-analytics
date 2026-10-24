@@ -57,7 +57,7 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 21 LIGAS OFICIALES CONSOLIDADAS SIN DUPLICADOS
+# 21 LIGAS CONSOLIDADAS Y SIN DUPLICADOS
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -183,7 +183,6 @@ def inicializar_bd():
         """)
         conn.commit()
 
-        # Inserción asegurada sin duplicados
         for lid, lnom, lpais in LIGAS_INICIALES:
             try:
                 cur.execute("""
@@ -246,7 +245,7 @@ except Exception as e:
     print(f"Aviso durante inicializar_bd: {e}")
 
 # ==============================================================================
-# MANEJO HORARIO EXACTO ECUADOR (UTC-5)
+# FORMATEO HORARIO PRECISO ECUADOR (UTC-5)
 # ==============================================================================
 def formatear_fecha_hora_ecuador(valor_fecha):
     if not valor_fecha:
@@ -261,7 +260,7 @@ def formatear_fecha_hora_ecuador(valor_fecha):
                 dt = valor_fecha - timedelta(hours=5)
         else:
             s = str(valor_fecha).strip()
-            # ESPN devuelve T00:00Z cuando la liga aún no define la hora
+            # Si ESPN no tiene horario programado suele enviar T00:00Z
             if "T00:00" in s or " 00:00:00" in s:
                 fecha_base = s.split("T")[0].split(" ")[0]
                 return fecha_base, "Por definir"
@@ -349,7 +348,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             
             st = descargar_resumen_evento(codigo_liga, fix_id)
             
-            # Obtener la hora real oficial enviada por ESPN en el objeto competition
+            # Obtener fecha y hora real desde competition
             comp_info = ev.get("competitions", [{}])[0]
             fecha_iso = comp_info.get("date") or ev.get("date") or datetime.now().isoformat()
             estado = "finalizado" if ev.get("status", {}).get("type", {}).get("completed", False) else "programado"
@@ -561,26 +560,38 @@ def api_partidos_guardados():
 def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
 
+    # Escaneo ampliado: Hoy + Próximos 7 días
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
         
-        hoy_str = datetime.now().strftime("%Y%m%d")
-        manana_str = (datetime.now() + timedelta(days=1)).strftime("%Y%m%d")
+        dias_a_escanear = [(datetime.now() + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 8)]
         
         for cod in codigos_a_escanear:
-            descargar_partidos_fecha(cod, hoy_str)
-            descargar_partidos_fecha(cod, manana_str)
+            for fecha_f in dias_a_escanear:
+                descargar_partidos_fecha(cod, fecha_f)
 
-    partidos_hoy = ejecutar_sql("""
+    # Filtrar desde ayer en adelante para mostrar la cartelera actual y de la semana
+    ayer_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    partidos_futuros = ejecutar_sql("""
         SELECT p.*, c.nombre as competicion_nombre 
         FROM partidos p
         LEFT JOIN competiciones c ON p.competicion_id = c.id
-        ORDER BY p.fecha DESC LIMIT 100
-    """, fetch="all") or []
+        WHERE p.fecha >= ?
+        ORDER BY p.fecha ASC LIMIT 300
+    """, (ayer_str,), fetch="all") or []
+
+    # Si la BD no tuviera partidos futuros, usar los últimos disponibles
+    if not partidos_futuros:
+        partidos_futuros = ejecutar_sql("""
+            SELECT p.*, c.nombre as competicion_nombre 
+            FROM partidos p
+            LEFT JOIN competiciones c ON p.competicion_id = c.id
+            ORDER BY p.fecha DESC LIMIT 100
+        """, fetch="all") or []
 
     alarmas = []
-    for p in partidos_hoy:
+    for p in partidos_futuros:
         loc = p["local"]
         vis = p["visitante"]
         res = auditar_partido_flexible(p["competicion_id"], loc, vis)
