@@ -1,938 +1,507 @@
-<!D<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fútbol Analytics Pro Móvil</title>
+  <title>Motor de Radiografía & Alarmas Diarias</title>
+  <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
   <style>
-    body { background-color: #f4f6f9; font-size: 0.92rem; font-family: system-ui, -apple-system, sans-serif; }
-    .card { border-radius: 14px; box-shadow: 0 3px 10px rgba(0,0,0,0.06); border: none; }
-    .nav-pills .nav-link { border-radius: 10px; font-weight: 600; color: #495057; }
-    .nav-pills .nav-link.active { background-color: #0d6efd; color: #fff; }
-    .market-btn { text-align: left; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; font-size: 0.88rem; transition: all 0.2s; }
-    .market-btn:hover, .market-btn.selected { background-color: #e7f1ff; border-color: #0d6efd; font-weight: bold; }
-    .tier-badge { font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 4px 8px; border-radius: 6px; }
-    .section-header { font-weight: 800; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px; }
-    .alarma-card { border-left: 4px solid #0d6efd; transition: transform 0.15s ease-in-out; }
-    .alarma-card:hover { transform: translateY(-2px); }
-    .table-alarma th, .table-alarma td { padding: 4px 6px; font-size: 0.80rem; text-align: center; }
-    .btn-filtro-dia { font-size: 0.80rem; font-weight: 700; border-radius: 8px; }
+    body { background-color: #f4f6f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .nav-pills .nav-link.active { background-color: #0d6efd; }
+    .card-match { border-radius: 12px; border: 1px solid #dee2e6; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .card-match:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    .metric-table th, .metric-table td { padding: 4px 8px; font-size: 0.88rem; }
+    .sticky-summary { position: sticky; top: 20px; }
   </style>
 </head>
-<body class="p-2 p-md-3">
-  <div class="container-fluid px-1" style="max-width: 680px;">
-    
-    <!-- Encabezado -->
-    <div class="text-center my-2">
-      <h5 class="fw-bold text-primary mb-0">⚽ Motor de Radiografía & Alarmas Diarias</h5>
-      <small class="text-muted">Cálculo Poisson estricto, Auditoría y Detección de Valor</small>
-    </div>
+<body class="py-4">
 
-    <!-- Pestañas Móviles -->
-    <ul class="nav nav-pills nav-fill mb-3 bg-white p-1 rounded-3 shadow-sm" id="pills-tab" role="tablist">
+<div class="container-fluid px-3 px-md-4">
+  <!-- ENCABEZADO PRINCIPAL -->
+  <div class="text-center mb-4">
+    <h2 class="fw-bold text-primary mb-1">
+      ⚽ Motor de Radiografía & Alarmas Diarias
+    </h2>
+    <p class="text-muted small mb-3">Auditoría estadística basada en partidos oficiales finalizados</p>
+    
+    <!-- PESTAÑAS PRINCIPALES -->
+    <ul class="nav nav-pills justify-content-center gap-2" id="pills-tab" role="tablist">
       <li class="nav-item">
-        <button class="nav-link active py-2" data-bs-toggle="pill" data-bs-target="#tab-alarmas">
-          🚨 Alarmas <span id="badge-total-alarmas" class="badge bg-warning text-dark">0</span>
+        <button class="nav-link active fw-bold" id="tab-alarmas" data-bs-toggle="pill" data-bs-target="#content-alarmas">
+          🚨 Alarmas <span class="badge bg-warning text-dark ms-1" id="badge-total-alarmas">0</span>
         </button>
       </li>
       <li class="nav-item">
-        <button class="nav-link py-2" data-bs-toggle="pill" data-bs-target="#tab-analisis">Analizar</button>
+        <button class="nav-link fw-bold" id="tab-analizar" data-bs-toggle="pill" data-bs-target="#content-analizar">
+          🔍 Analizar
+        </button>
       </li>
       <li class="nav-item">
-        <button class="nav-link py-2" data-bs-toggle="pill" data-bs-target="#tab-descargas">Ligas & Enlaces</button>
+        <button class="nav-link fw-bold" id="tab-ligas" data-bs-toggle="pill" data-bs-target="#content-ligas">
+          🌐 Ligas & Enlaces
+        </button>
       </li>
       <li class="nav-item">
-        <button class="nav-link py-2" data-bs-toggle="pill" data-bs-target="#tab-boleta">
-          Boleta <span id="badge-boleta" class="badge bg-danger">0</span>
+        <button class="nav-link fw-bold position-relative" id="tab-boleta" data-bs-toggle="pill" data-bs-target="#content-boleta">
+          📋 Boleta <span class="badge bg-danger ms-1" id="badge-boleta">0</span>
         </button>
       </li>
     </ul>
+  </div>
 
-    <div class="tab-content">
-      
-      <!-- ================= PESTAÑA 0: ALARMAS DEL DÍA ================= -->
-      <div class="tab-pane fade show active" id="tab-alarmas">
-        
-        <div class="card p-3 mb-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <div>
-              <h6 class="fw-bold mb-0 text-dark">Radar de Partidos (Hora Ecuador)</h6>
-              <small class="text-muted" id="txt-sub-alarmas">Cartelera activa, en juego y finalizados</small>
-            </div>
-            <button class="btn btn-sm btn-outline-primary fw-bold" onclick="cargarAlarmasDiarias(true)">
+  <div class="tab-content" id="pills-tabContent">
+    
+    <!-- ========================================== -->
+    <!-- 1. PESTAÑA ALARMAS DIARIAS                 -->
+    <!-- ========================================== -->
+    <div class="tab-pane fade show active" id="content-alarmas" role="tabpanel">
+      <!-- BARRA DE CONTROL Y FILTROS -->
+      <div class="card p-3 mb-4 shadow-sm border-0">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+          <div>
+            <h5 class="fw-bold mb-0">Radar de Partidos (Hora Ecuador)</h5>
+            <small class="text-muted">Cartelera en juego, programados y finalizados</small>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-primary fw-bold" id="btn-escanear" onclick="cargarAlarmas(true)">
               ⚡ Escaneo en Vivo
             </button>
           </div>
-
-          <div class="row g-2 align-items-center mb-2">
-            <div class="col-6">
-              <label class="small text-muted fw-bold">Rango de Búsqueda:</label>
-              <select id="select-dias-alarma" class="form-select form-select-sm" onchange="cargarAlarmasDiarias(false)">
-                <option value="1">Solo Hoy</option>
-                <option value="2" selected>Hoy y Mañana (+1 día)</option>
-                <option value="3">Próximos 3 días</option>
-                <option value="7">Próxima semana (7 días)</option>
-                <option value="todos">Todos los registrados</option>
-              </select>
-            </div>
-            <div class="col-6">
-              <label class="small text-muted fw-bold">Ver en Pantalla:</label>
-              <select id="select-filtro-fecha" class="form-select form-select-sm fw-bold text-primary" onchange="cambiarFiltroDia(this.value)">
-                <option value="todos">Mostrar Todos</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Botones de Acceso Rápido por Día -->
-          <div id="botones-dias-rapidos" class="d-flex gap-1 overflow-auto pb-1"></div>
         </div>
 
-        <!-- Contenedor de Tarjetas con Radiografía Cara a Cara Completa -->
-        <div id="contenedor-alarmas">
-          <div class="text-center py-4 text-muted small">
-            <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
-            <div>Consultando cartelera y auditando probabilidades...</div>
-          </div>
-        </div>
-      </div>
+        <hr class="my-3">
 
-      <!-- ================= PESTAÑA 1: ANÁLISIS MANUAL ================= -->
-      <div class="tab-pane fade" id="tab-analisis">
-        
-        <div class="card p-3 mb-3">
-          <label class="form-label fw-bold mb-1">Competición:</label>
-          <select id="select-liga" class="form-select mb-2" onchange="cargarEquipos()">
-            {% for liga in ligas %}
-            <option value="{{ liga.id }}">{{ liga.nombre }}</option>
-            {% endfor %}
-          </select>
-
-          <div class="row g-2 mb-3">
-            <div class="col-6">
-              <label class="form-label fw-bold text-success mb-1">Equipo Local (A):</label>
-              <select id="select-local" class="form-select"></select>
-            </div>
-            <div class="col-6">
-              <label class="form-label fw-bold text-danger mb-1">Equipo Visitante (B):</label>
-              <select id="select-visitante" class="form-select"></select>
-            </div>
-          </div>
-
-          <button class="btn btn-primary w-100 py-2 fw-bold shadow-sm" onclick="calcularPronostico()">
-            ⚡ Generar Radiografía Confiable
+        <!-- FILTROS POR FECHA -->
+        <div class="d-flex flex-wrap align-items-center gap-2 overflow-auto py-1" id="contenedor-fechas">
+          <button class="btn btn-sm btn-outline-primary active fw-bold" onclick="filtrarPorFecha('todos', this)">
+            Todos (<span id="cont-todos">0</span>)
           </button>
-        </div>
-
-        <div id="resultado-panel" class="d-none">
-          
-          <!-- SECCIÓN A: RADIOGRAFÍA CARA A CARA REAL -->
-          <div class="card p-3 mb-3">
-            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
-              <span class="section-header text-dark">📊 1. Radiografía Cara a Cara Real</span>
-              <span class="badge bg-primary" id="tag-xg-total">Total: 0.00 xG</span>
-            </div>
-
-            <div class="table-responsive">
-              <table class="table table-sm table-bordered text-center align-middle mb-0" style="font-size: 0.85rem;">
-                <thead class="table-light">
-                  <tr>
-                    <th class="text-start" style="width: 34%;">Métrica</th>
-                    <th class="text-success" id="th-local" style="width: 22%;">Local</th>
-                    <th class="text-danger" id="th-vis" style="width: 22%;">Visitante</th>
-                    <th class="text-primary bg-light" style="width: 22%;">Total Suma</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td class="text-start fw-bold">⚽ Goles (xG)</td>
-                    <td id="td-xg-l" class="fw-bold text-success">--</td>
-                    <td id="td-xg-v" class="fw-bold text-danger">--</td>
-                    <td id="td-xg-tot" class="fw-bold text-primary bg-light">--</td>
-                  </tr>
-                  <tr>
-                    <td class="text-start fw-bold">🚩 Córners</td>
-                    <td id="td-crn-l">--</td>
-                    <td id="td-crn-v">--</td>
-                    <td id="td-crn-tot" class="fw-bold text-primary bg-light">--</td>
-                  </tr>
-                  <tr>
-                    <td class="text-start fw-bold">🟨 Tarjetas</td>
-                    <td id="td-tar-l">--</td>
-                    <td id="td-tar-v">--</td>
-                    <td id="td-tar-tot" class="fw-bold text-warning text-dark bg-light">--</td>
-                  </tr>
-                  <tr>
-                    <td class="text-start fw-bold">🛑 Fueras de Juego</td>
-                    <td id="td-off-l">--</td>
-                    <td id="td-off-v">--</td>
-                    <td id="td-off-tot" class="fw-bold text-secondary bg-light">--</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="small text-muted mt-2" id="txt-muestras-bd">Partidos analizados en BD: --</div>
-          </div>
-
-          <!-- SECCIÓN B: MÓDULO DE RADIOGRAFÍA CONFIABLE -->
-          <div class="card p-3 mb-3 border border-2 border-primary" style="background-color: #fcfdff;">
-            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
-              <span class="section-header text-primary">🛡️ 2. Motor de Radiografía Confiable</span>
-              <span id="badge-confianza" class="badge">--</span>
-            </div>
-
-            <div id="box-alerta-riesgo" class="p-2 rounded small mb-2"></div>
-            
-            <div class="bg-white p-2 rounded border small mb-3">
-              <div class="fw-bold mb-1">Cálculo Poisson & Dispersión:</div>
-              <div id="txt-poisson-stats"></div>
-            </div>
-
-            <div class="fw-bold small text-secondary mb-2">ESTRUCTURA DE PRONÓSTICO (3 NIVELES):</div>
-
-            <!-- Nivel 1 -->
-            <div class="border rounded p-2 mb-2 bg-white shadow-sm">
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                <span class="tier-badge bg-success text-white">NIVEL 1: SEGURO (>80%)</span>
-                <span class="badge bg-secondary" id="n1-stake">Stake 2.5% - 3.0%</span>
-              </div>
-              <div class="d-flex justify-content-between align-items-center">
-                <div>
-                  <strong class="text-dark d-block" id="n1-mercado">--</strong>
-                  <small class="text-muted">Probabilidad Real: <span id="n1-prob" class="fw-bold text-success">--</span></small>
-                </div>
-                <button class="btn btn-sm btn-outline-success fw-bold" onclick="seleccionarNivel(1)">
-                  ➕ @<span id="n1-cuota">--</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Nivel 2 -->
-            <div class="border rounded p-2 mb-2 bg-white shadow-sm">
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                <span class="tier-badge bg-warning text-dark">NIVEL 2: MEDIO (65% - 80%)</span>
-                <span class="badge bg-secondary" id="n2-stake">Stake 1.5% - 2.0%</span>
-              </div>
-              <div class="d-flex justify-content-between align-items-center">
-                <div>
-                  <strong class="text-dark d-block" id="n2-mercado">--</strong>
-                  <small class="text-muted">Probabilidad Real: <span id="n2-prob" class="fw-bold text-primary">--</span></small>
-                </div>
-                <button class="btn btn-sm btn-outline-primary fw-bold" onclick="seleccionarNivel(2)">
-                  ➕ @<span id="n2-cuota">--</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Nivel 3 -->
-            <div class="border rounded p-2 mb-2 bg-white shadow-sm">
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                <span class="tier-badge bg-primary text-white">NIVEL 3: VALOR (Market vs Fair)</span>
-                <span class="badge bg-secondary" id="n3-stake">Stake 1.0%</span>
-              </div>
-              <div class="d-flex justify-content-between align-items-center">
-                <div>
-                  <strong class="text-dark d-block" id="n3-mercado">--</strong>
-                  <small class="text-muted">Cuota Justa: <strong id="n3-cuota">--</strong></small>
-                </div>
-                <button class="btn btn-sm btn-outline-dark fw-bold" onclick="seleccionarNivel(3)">
-                  ➕ Añadir
-                </button>
-              </div>
-            </div>
-
-            <div class="alert alert-warning py-2 mb-0 small text-center mt-2 fw-bold">
-              ⚠️ GESTIÓN DE BANCA: Sugerido Stake 1-3%. Ningún mercado es 100% infalible.
-            </div>
-          </div>
-
-          <!-- SECCIÓN C: MERCADOS COMPLETOS -->
-          <div class="card p-3 mb-3">
-            <span class="section-header text-dark border-bottom pb-2 mb-2">📋 3. Mercados Adicionales Desglosados</span>
-
-            <small class="fw-bold text-secondary mb-1 d-block">Mercado 1X2:</small>
-            <div class="d-grid gap-1 mb-3">
-              <button class="btn btn-outline-dark market-btn d-flex justify-content-between align-items-center" onclick="seleccionarMercado('1X2', 'Victoria Local ('+datosPartidoActual.local+')', probData.prob_loc, 100/probData.prob_loc)">
-                <span>1 - Gana <span class="lbl-local">Local</span> (<span id="btn-p-loc"></span>)</span>
-                <span class="badge bg-primary fs-6" id="btn-c-loc">@--</span>
-              </button>
-              <button class="btn btn-outline-dark market-btn d-flex justify-content-between align-items-center" onclick="seleccionarMercado('1X2', 'Empate', probData.prob_emp, 100/probData.prob_emp)">
-                <span>X - Empate (<span id="btn-p-emp"></span>)</span>
-                <span class="badge bg-primary fs-6" id="btn-c-emp">@--</span>
-              </button>
-              <button class="btn btn-outline-dark market-btn d-flex justify-content-between align-items-center" onclick="seleccionarMercado('1X2', 'Victoria Visitante ('+datosPartidoActual.visitante+')', probData.prob_vis, 100/probData.prob_vis)">
-                <span>2 - Gana <span class="lbl-vis">Visitante</span> (<span id="btn-p-vis"></span>)</span>
-                <span class="badge bg-primary fs-6" id="btn-c-vis">@--</span>
-              </button>
-            </div>
-
-            <small class="fw-bold text-secondary mb-1 d-block">Mercado de Goles:</small>
-            <div class="row g-1 mb-3">
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Goles', 'Más de 1.5 Goles', probData.o15, 100/probData.o15)">
-                  <span>+1.5 Goles (<span id="btn-p-o15"></span>)</span>
-                  <span class="badge bg-success" id="btn-c-o15">@--</span>
-                </button>
-              </div>
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Goles', 'Más de 2.5 Goles', probData.o25, 100/probData.o25)">
-                  <span>+2.5 Goles (<span id="btn-p-o25"></span>)</span>
-                  <span class="badge bg-success" id="btn-c-o25">@--</span>
-                </button>
-              </div>
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Goles', 'Menos de 2.5 Goles', 100 - probData.o25, 100 / (100 - probData.o25))">
-                  <span>-2.5 Goles (<span id="btn-p-u25"></span>)</span>
-                  <span class="badge bg-secondary" id="btn-c-u25">@--</span>
-                </button>
-              </div>
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Goles', 'Ambos Marcan (BTTS)', probData.btts, 100/probData.btts)">
-                  <span>BTTS Sí (<span id="btn-p-btts"></span>)</span>
-                  <span class="badge bg-info text-dark" id="btn-c-btts">@--</span>
-                </button>
-              </div>
-            </div>
-
-            <small class="fw-bold text-secondary mb-1 d-block">🚩 Tiros de Esquina (Córners Totales):</small>
-            <div class="row g-1 mb-3">
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Córners', 'Más de 8.5 Córners', probData.crn_o85, 100/probData.crn_o85)">
-                  <span>+8.5 Córners (<span id="btn-p-crn-o85"></span>)</span>
-                  <span class="badge bg-success" id="btn-c-crn-o85">@--</span>
-                </button>
-              </div>
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Córners', 'Menos de 8.5 Córners', 100 - probData.crn_o85, 100/(100 - probData.crn_o85))">
-                  <span>-8.5 Córners (<span id="btn-p-crn-u85"></span>)</span>
-                  <span class="badge bg-secondary" id="btn-c-crn-u85">@--</span>
-                </button>
-              </div>
-            </div>
-
-            <small class="fw-bold text-secondary mb-1 d-block">🟨 Tarjetas Totales:</small>
-            <div class="row g-1 mb-3">
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Tarjetas', 'Más de 3.5 Tarjetas', probData.tar_o35, 100/probData.tar_o35)">
-                  <span>+3.5 Tarjetas (<span id="btn-p-tar-o35"></span>)</span>
-                  <span class="badge bg-warning text-dark" id="btn-c-tar-o35">@--</span>
-                </button>
-              </div>
-              <div class="col-6">
-                <button class="btn btn-outline-dark market-btn w-100 d-flex justify-content-between align-items-center" onclick="seleccionarMercado('Tarjetas', 'Menos de 3.5 Tarjetas', 100 - probData.tar_o35, 100/(100 - probData.tar_o35))">
-                  <span>-3.5 Tarjetas (<span id="btn-p-tar-u35"></span>)</span>
-                  <span class="badge bg-secondary" id="btn-c-tar-u35">@--</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="alert alert-light border small py-2 mb-0">
-              <strong>Top Marcadores Exactos:</strong> <span id="txt-top3" class="text-primary fw-bold"></span>
-            </div>
-          </div>
-
+          <!-- Botones de fecha inyectados dinámicamente -->
         </div>
       </div>
 
-      <!-- ================= PESTAÑA 2: LIGAS Y DESCARGAS ================= -->
-      <div class="tab-pane fade" id="tab-descargas">
-        
-        <div class="card p-3 mb-3">
-          <h6 class="fw-bold mb-2">➕ Agregar Liga por Enlace o Código</h6>
-          <small class="text-muted d-block mb-2">
-            Pega el enlace de la tabla de <strong>ESPN</strong> o escribe el código (ej: <code>ecu.1</code>, <code>esp.1</code>, <code>eng.1</code>).
-          </small>
-          <input type="text" id="nuevo-enlace" class="form-control mb-2" placeholder="ejemplo: https://www.espn.com/... o ecu.1">
-          <button class="btn btn-outline-primary w-100 py-2 fw-bold" onclick="agregarNuevoEnlace()">Sincronizar y Registrar Liga</button>
-          <div id="enlace-status" class="alert mt-2 d-none small"></div>
-        </div>
-
-        <div class="card p-3">
-          <h6 class="fw-bold mb-2">Sincronización Manual por Fecha</h6>
-          <small class="text-muted d-block mb-2">Descarga partidos de fechas específicas.</small>
-          <label class="form-label small mb-1">Liga:</label>
-          <select id="sync-liga" class="form-select mb-2">
-            {% for liga in ligas %}
-            <option value="{{ liga.id }}">{{ liga.nombre }}</option>
-            {% endfor %}
-          </select>
-          <label class="form-label small mb-1">Fecha (AAAAMMDD):</label>
-          <input type="text" id="sync-fecha" class="form-control mb-3" value="{{ fecha_hoy }}">
-          <button class="btn btn-dark w-100 py-2 fw-bold" onclick="ejecutarSincronizacion()">Descargar Partidos</button>
-          <div id="sync-status" class="alert alert-info mt-3 d-none small"></div>
-        </div>
-
+      <!-- SPINNER DE CARGA -->
+      <div id="loading-spinner" class="text-center py-5 d-none">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="text-muted mt-2">Consultando historial en Supabase y procesando métricas reales...</p>
       </div>
 
-      <!-- ================= PESTAÑA 3: BOLETA ================= -->
-      <div class="tab-pane fade" id="tab-boleta">
-        <div class="card p-3">
-          <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
-            <h6 class="fw-bold mb-0">Boleta de Selecciones</h6>
-            <button class="btn btn-sm btn-outline-danger py-0" onclick="limpiarBoleta()">Limpiar Todo</button>
-          </div>
-          
-          <div id="boleta-contenedor" class="accordion mb-3">
-            <p class="text-muted text-center py-4 small">No tienes selecciones guardadas. Toca un pronóstico en "Alarmas" o "Analizar" para agregarlo.</p>
-          </div>
-
-          <div class="card bg-primary text-white p-3">
-            <div class="d-flex justify-content-between align-items-center mb-1">
-              <span>Cuota Multiplicada:</span>
-              <strong id="boleta-cuota" class="fs-4 text-warning">@1.00</strong>
-            </div>
-            <div class="d-flex justify-content-between align-items-center small">
-              <span>Probabilidad Acumulada:</span>
-              <span id="boleta-prob" class="fw-bold">100.0%</span>
-            </div>
-          </div>
-        </div>
+      <!-- LISTA DE TARJETAS DE PARTIDOS -->
+      <div class="row g-3" id="lista-alarmas">
+        <!-- Tarjetas inyectadas vía JS -->
       </div>
-
     </div>
+
+    <!-- ========================================== -->
+    <!-- 2. PESTAÑA ANALIZAR MANUAL               -->
+    <!-- ========================================== -->
+    <div class="tab-pane fade" id="content-analizar" role="tabpanel">
+      <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+          <div class="card p-4 shadow-sm border-0">
+            <h5 class="fw-bold mb-3">Auditoría Directa de Encuentro</h5>
+            <div class="mb-3">
+              <label class="form-label fw-bold small">Competición</label>
+              <select class="form-select" id="select-liga-manual" onchange="actualizarEquiposLiga()">
+                {% for l in ligas %}
+                  <option value="{{ l.id }}">{{ l.nombre }} ({{ l.pais }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-bold small">Equipo Local</label>
+              <select class="form-select" id="select-local-manual"></select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-bold small">Equipo Visitante</label>
+              <select class="form-select" id="select-visitante-manual"></select>
+            </div>
+            <button class="btn btn-primary w-100 fw-bold" onclick="calcularManual()">Calcular Probabilidades Reales</button>
+            <div id="resultado-manual" class="mt-4"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 3. PESTAÑA LIGAS & ENLACES                -->
+    <!-- ========================================== -->
+    <div class="tab-pane fade" id="content-ligas" role="tabpanel">
+      <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+          <div class="card p-4 shadow-sm border-0">
+            <h5 class="fw-bold mb-3">Sincronizar Liga Específica</h5>
+            <p class="text-muted small">Descarga el historial de 15 días pasados para una liga específica en Supabase.</p>
+            <div class="mb-3">
+              <label class="form-label fw-bold small">Código de Liga o URL de ESPN (ej. eng.1, esp.1, eng.3)</label>
+              <input type="text" class="form-control" id="input-url-liga" placeholder="ej. eng.3">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-bold small">Fecha Base (Formato AAAAMMDD)</label>
+              <input type="text" class="form-control" id="input-fecha-liga" value="{{ fecha_hoy }}">
+            </div>
+            <button class="btn btn-success w-100 fw-bold" onclick="sincronizarLiga()">Sincronizar Liga & Cargar Historial</button>
+            <div id="msg-sincronizacion" class="mt-3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 4. PESTAÑA BOLETA (SIMULADOR PARLAY)      -->
+    <!-- ========================================== -->
+    <div class="tab-pane fade" id="content-boleta" role="tabpanel">
+      <div class="row justify-content-center">
+        <div class="col-md-9 col-lg-7">
+          <div class="card p-4 shadow-sm border-0">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h5 class="fw-bold mb-0">Boleta de Selecciones Directas</h5>
+              <button class="btn btn-sm btn-outline-danger" onclick="limpiarBoleta()">Vaciar Boleta</button>
+            </div>
+            <div id="lista-boleta">
+              <p class="text-muted text-center py-4">No has agregado selecciones a la boleta todavía.</p>
+            </div>
+            <div id="resumen-boleta" class="d-none border-top pt-3 mt-3">
+              <div class="d-flex justify-content-between fw-bold fs-5 mb-3">
+                <span>Cuota Total Combinada:</span>
+                <span class="text-success" id="total-cuota-boleta">@1.00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
+</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script>
-    let probData = null;
-    let datosPartidoActual = null;
-    let boletaItems = [];
-    let todasLasAlarmas = [];
-    let fechasDetectadas = [];
-    let fechaSeleccionada = "todos";
+<!-- Bootstrap 5 JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-    document.addEventListener("DOMContentLoaded", () => {
-      cargarEquipos();
-      cargarAlarmasDiarias(false);
+<script>
+  let todosLosPartidos = [];
+  let boleta = [];
+
+  document.addEventListener("DOMContentLoaded", () => {
+    cargarAlarmas(false);
+    actualizarEquiposLiga();
+  });
+
+  // CARGAR ALARMAS DESDE LA API
+  function cargarAlarmas(forzar) {
+    const spinner = document.getElementById("loading-spinner");
+    const contenedor = document.getElementById("lista-alarmas");
+    const btnEscanear = document.getElementById("btn-escanear");
+
+    spinner.classList.remove("d-none");
+    btnEscanear.disabled = true;
+
+    fetch(`/api/alarmas_hoy?forzar=${forzar}`)
+      .then(res => res.json())
+      .then(data => {
+        spinner.classList.add("d-none");
+        btnEscanear.disabled = false;
+        if (data.success && data.alarmas) {
+          todosLosPartidos = data.alarmas;
+          document.getElementById("badge-total-alarmas").innerText = todosLosPartidos.length;
+          document.getElementById("cont-todos").innerText = todosLosPartidos.length;
+          construirBotonesFechas(todosLosPartidos);
+          renderizarPartidos(todosLosPartidos);
+        }
+      })
+      .catch(err => {
+        spinner.classList.add("d-none");
+        btnEscanear.disabled = false;
+        contenedor.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error de conexión: ${err}</div></div>`;
+      });
+  }
+
+  // RENDERIZAR BOTONES DE FECHA
+  function construirBotonesFechas(partidos) {
+    const fechasMap = {};
+    partidos.forEach(p => {
+      const f = p.fecha || 'Sin fecha';
+      fechasMap[f] = (fechasMap[f] || 0) + 1;
     });
 
-    // ==========================================
-    // SISTEMA DE ALARMAS DIARIAS
-    // ==========================================
-    async function cargarAlarmasDiarias(forzar = false) {
-      const cont = document.getElementById("contenedor-alarmas");
-      const badgeTot = document.getElementById("badge-total-alarmas");
+    const contenedor = document.getElementById("contenedor-fechas");
+    contenedor.innerHTML = `
+      <button class="btn btn-sm btn-outline-primary active fw-bold" onclick="filtrarPorFecha('todos', this)">
+        Todos (${partidos.length})
+      </button>
+    `;
 
-      cont.innerHTML = `
-        <div class="text-center py-4 text-muted small">
-          <div class="spinner-border spinner-border-sm text-primary mb-2" role="status"></div>
-          <div>${forzar ? 'Escaneando carteleras de ESPN...' : 'Cargando pronósticos y partidos...'}</div>
-        </div>`;
+    Object.keys(fechasMap).sort().forEach(f => {
+      const btn = document.createElement("button");
+      btn.className = "btn btn-sm btn-outline-secondary fw-bold";
+      btn.innerHTML = `${f} <span class="badge bg-secondary ms-1">${fechasMap[f]}</span>`;
+      btn.onclick = () => filtrarPorFecha(f, btn);
+      contenedor.appendChild(btn);
+    });
+  }
 
-      try {
-        const url = forzar ? `/api/alarmas_hoy?forzar=true` : `/api/alarmas_hoy`;
-        const res = await fetch(url);
-        const data = await res.json();
+  // FILTRADO RÁPIDO
+  function filtrarPorFecha(fecha, btnElement) {
+    document.querySelectorAll("#contenedor-fechas button").forEach(b => {
+      b.classList.remove("btn-outline-primary", "active");
+      b.classList.add("btn-outline-secondary");
+    });
+    btnElement.classList.remove("btn-outline-secondary");
+    btnElement.classList.add("btn-outline-primary", "active");
 
-        if (!data.success || !data.alarmas || data.alarmas.length === 0) {
-          const fallbackRes = await fetch('/api/partidos_guardados');
-          const fallbackData = await fallbackRes.json();
-          
-          if (fallbackData.success && fallbackData.partidos && fallbackData.partidos.length > 0) {
-            todasLasAlarmas = fallbackData.partidos.map(p => ({
-              fixture_id: p.fixture_id,
-              competicion_id: p.competicion_id,
-              competicion_nombre: p.competicion_nombre,
-              fecha: (p.fecha || '').slice(0, 10),
-              hora_ecuador: p.hora_ecuador || 'Completado',
-              local: p.local,
-              visitante: p.visitante,
-              estado: p.estado || 'finalizado',
-              confianza: 8,
-              alerta_riesgo: 'Partido registrado en base de datos',
-              mercado_recomendado: (p.goles_local >= 2) ? `Over 1.5 Goles ${p.local}` : 'Más de 8.5 Córners Totales',
-              probabilidad: 78.5,
-              cuota_justa: 1.30,
-              stake: 'Stake 2.0%',
-              marcador: `${p.goles_local} - ${p.goles_visitante}`,
-              stats: {
-                gl_l: p.goles_local,
-                gl_v: p.goles_visitante,
-                crn_l: p.corners_local,
-                crn_v: p.corners_visitante,
-                crn_tot: (p.corners_local || 0) + (p.corners_visitante || 0),
-                tar_l: p.tarjetas_local,
-                tar_v: p.tarjetas_visitante,
-                tar_tot: (p.tarjetas_local || 0) + (p.tarjetas_visitante || 0),
-                off_l: p.offsides_local,
-                off_v: p.offsides_visitante,
-                off_tot: (p.offsides_local || 0) + (p.offsides_visitante || 0)
-              }
-            }));
-          } else {
-            badgeTot.innerText = "0";
-            todasLasAlarmas = [];
-            cont.innerHTML = `
-              <div class="card p-4 text-center text-muted">
-                <p class="mb-1 fw-bold">No se detectaron partidos pendientes ni registrados.</p>
-                <small>Presiona "Escaneo en Vivo" si deseas consultar ESPN al instante.</small>
-              </div>`;
-            return;
-          }
-        } else {
-          todasLasAlarmas = data.alarmas;
-        }
+    if (fecha === 'todos') {
+      renderizarPartidos(todosLosPartidos);
+    } else {
+      const filtrados = todosLosPartidos.filter(p => p.fecha === fecha);
+      renderizarPartidos(filtrados);
+    }
+  }
 
-        badgeTot.innerText = todasLasAlarmas.length;
-        fechasDetectadas = [...new Set(todasLasAlarmas.map(a => a.fecha || 'Hoy'))].filter(Boolean).sort().reverse();
-
-        actualizarControlesDeFecha();
-        renderizarTarjetasAlarmas();
-
-      } catch (err) {
-        cont.innerHTML = `<div class="alert alert-danger small">Error consultando datos: ${err.message}</div>`;
-      }
+  // PINTAR LAS TARJETAS CON MÉTRICAS REALES (INCLUYE FUERAS DE JUEGO)
+  function renderizarPartidos(partidos) {
+    const contenedor = document.getElementById("lista-alarmas");
+    if (!partidos || partidos.length === 0) {
+      contenedor.innerHTML = `<div class="col-12"><div class="alert alert-info text-center">No hay partidos para mostrar en este rango.</div></div>`;
+      return;
     }
 
-    function actualizarControlesDeFecha() {
-      const sel = document.getElementById("select-filtro-fecha");
-      const btnsBox = document.getElementById("botones-dias-rapidos");
+    let html = "";
+    partidos.forEach(p => {
+      const esFinalizado = p.estado === 'finalizado';
+      const badgeEstado = esFinalizado 
+        ? `<span class="badge bg-secondary">FINALIZADO (${p.marcador || '0 - 0'})</span>` 
+        : `<span class="badge bg-primary">PROGRAMADO</span>`;
 
-      sel.innerHTML = '<option value="todos">Mostrar Todos</option>';
-      btnsBox.innerHTML = `
-        <button class="btn btn-sm ${fechaSeleccionada === 'todos' ? 'btn-primary' : 'btn-outline-secondary'} btn-filtro-dia text-nowrap" onclick="cambiarFiltroDia('todos')">
-          Todos (${todasLasAlarmas.length})
-        </button>`;
-
-      fechasDetectadas.forEach((f) => {
-        const totalDelDia = todasLasAlarmas.filter(a => a.fecha === f).length;
-        const opt = document.createElement("option");
-        opt.value = f;
-        opt.innerText = `${f} (${totalDelDia} partidos)`;
-        if (fechaSeleccionada === f) opt.selected = true;
-        sel.appendChild(opt);
-
-        btnsBox.innerHTML += `
-          <button class="btn btn-sm ${fechaSeleccionada === f ? 'btn-primary' : 'btn-outline-secondary'} btn-filtro-dia text-nowrap" onclick="cambiarFiltroDia('${f}')">
-            ${f} <span class="badge ${fechaSeleccionada === f ? 'bg-light text-dark' : 'bg-secondary'}">${totalDelDia}</span>
-          </button>`;
-      });
-
-      if (fechaSeleccionada === "todos") sel.value = "todos";
-    }
-
-    function cambiarFiltroDia(fecha) {
-      fechaSeleccionada = fecha;
-      actualizarControlesDeFecha();
-      renderizarTarjetasAlarmas();
-    }
-
-    function renderizarTarjetasAlarmas() {
-      const cont = document.getElementById("contenedor-alarmas");
-      let listaFiltrada = todasLasAlarmas;
-      
-      if (fechaSeleccionada !== "todos") {
-        listaFiltrada = todasLasAlarmas.filter(a => a.fecha === fechaSeleccionada);
-      }
-
-      if (listaFiltrada.length === 0) {
-        cont.innerHTML = `
-          <div class="card p-4 text-center text-muted">
-            <p class="mb-1 fw-bold">No hay partidos para el filtro seleccionado.</p>
-            <button class="btn btn-sm btn-outline-primary mt-2" onclick="cambiarFiltroDia('todos')">Mostrar todos los partidos</button>
-          </div>`;
-        return;
-      }
-
-      let html = "";
-      listaFiltrada.forEach(a => {
-        let badgeConfClass = "bg-warning text-dark";
-        if (a.confianza >= 7) badgeConfClass = "bg-success text-white";
-        if (a.confianza <= 4) badgeConfClass = "bg-danger text-white";
-
-        let estadoBadge = `<span class="badge bg-primary text-white">PROGRAMADO</span>`;
-        if (a.estado === 'finalizado' || a.marcador) {
-          estadoBadge = `<span class="badge bg-secondary text-white">FINALIZADO ${a.marcador ? '(' + a.marcador + ')' : ''}</span>`;
-        } else if (a.estado === 'en_juego') {
-          estadoBadge = `<span class="badge bg-danger text-white">EN VIVO</span>`;
-        }
-
-        const horaTxt = a.hora_ecuador ? a.hora_ecuador : "Por definir";
-        const fStr = a.fecha || "Fecha por definir";
-        const st = a.stats || { gl_l: 0, gl_v: 0, crn_l: 0, crn_v: 0, crn_tot: 0, tar_l: 0, tar_v: 0, tar_tot: 0, off_l: 0, off_v: 0, off_tot: 0 };
-
-        html += `
-          <div class="card p-3 mb-3 bg-white alarma-card shadow-sm border rounded-3">
-            <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
-              <span class="badge bg-light text-dark border fw-bold">${a.competicion_nombre || a.competicion_id}</span>
-              <div>
-                ${estadoBadge}
-                <span class="badge bg-light text-dark border ms-1">📅 ${fStr}</span>
-                <span class="badge bg-primary-subtle text-primary border ms-1 fw-bold">⏰ ${horaTxt} (ECU)</span>
-              </div>
-            </div>
-
+      html += `
+        <div class="col-md-6 col-lg-6">
+          <div class="card card-match p-3 bg-white h-100 shadow-sm">
+            <!-- CABECERA DE LIGA Y HORARIO -->
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <strong class="text-dark fs-6">${a.local} vs ${a.visitante}</strong>
-              <span class="badge ${badgeConfClass}">Conf: ${a.confianza}/10</span>
+              <span class="badge bg-light text-dark border">${p.competicion_nombre}</span>
+              <div class="d-flex align-items-center gap-2">
+                ${badgeEstado}
+                <small class="text-muted">📅 ${p.fecha}</small>
+                <small class="text-muted fw-bold">🕒 ${p.hora_ecuador} (ECU)</small>
+              </div>
             </div>
 
-            <!-- TABLA CARA A CARA REAL (POISSON BD) -->
-            <div class="table-responsive mb-2">
-              <table class="table table-bordered table-sm text-center mb-0 bg-light" style="font-size: 0.80rem;">
-                <thead class="table-secondary">
-                  <tr>
-                    <th class="text-start" style="width: 37%;">Métrica Real BD</th>
-                    <th class="text-success" style="width: 21%;">${a.local}</th>
-                    <th class="text-danger" style="width: 21%;">${a.visitante}</th>
-                    <th class="text-primary fw-bold" style="width: 21%;">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td class="text-start fw-bold">⚽ Goles (xG)</td>
-                    <td class="text-success fw-bold">${Number(st.gl_l || 0).toFixed(2)}</td>
-                    <td class="text-danger fw-bold">${Number(st.gl_v || 0).toFixed(2)}</td>
-                    <td class="fw-bold bg-white text-primary">${(Number(st.gl_l || 0) + Number(st.gl_v || 0)).toFixed(2)}</td>
-                  </tr>
-                  <tr>
-                    <td class="text-start">🚩 Córners</td>
-                    <td>${Number(st.crn_l || 0).toFixed(1)}</td>
-                    <td>${Number(st.crn_v || 0).toFixed(1)}</td>
-                    <td class="fw-bold bg-white">${Number(st.crn_tot || 0).toFixed(1)}</td>
-                  </tr>
-                  <tr>
-                    <td class="text-start">🟨 Tarjetas</td>
-                    <td>${Number(st.tar_l || 0).toFixed(1)}</td>
-                    <td>${Number(st.tar_v || 0).toFixed(1)}</td>
-                    <td class="fw-bold bg-white">${Number(st.tar_tot || 0).toFixed(1)}</td>
-                  </tr>
-                  <tr>
-                    <td class="text-start">🛑 Fueras de Juego</td>
-                    <td>${Number(st.off_l || 0).toFixed(1)}</td>
-                    <td>${Number(st.off_v || 0).toFixed(1)}</td>
-                    <td class="fw-bold bg-white">${Number(st.off_tot || 0).toFixed(1)}</td>
-                  </tr>
-                </tbody>
-              </table>
+            <!-- ENFRENTAMIENTO -->
+            <div class="d-flex justify-content-between align-items-center my-2">
+              <h5 class="fw-bold mb-0 text-dark">${p.local} <span class="text-muted fw-normal">vs</span> ${p.visitante}</h5>
+              <span class="badge bg-warning text-dark">Conf: ${p.confianza}/10</span>
             </div>
 
-            <div class="p-2 rounded bg-light border mb-2 d-flex justify-content-between align-items-center">
+            <!-- TABLA DE MÉTRICAS REALES DE CANCHA -->
+            <table class="table table-bordered table-sm text-center my-2 align-middle metric-table">
+              <thead class="table-light">
+                <tr>
+                  <th class="text-start">Métrica Real BD</th>
+                  <th class="text-success">${p.local}</th>
+                  <th class="text-danger">${p.visitante}</th>
+                  <th class="text-primary">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="text-start fw-bold">⚽ Goles (Promedio)</td>
+                  <td>${p.stats?.gl_l ?? 0}</td>
+                  <td>${p.stats?.gl_v ?? 0}</td>
+                  <td class="fw-bold">${p.stats?.gl_tot ?? 0}</td>
+                </tr>
+                <tr>
+                  <td class="text-start fw-bold">🚩 Córners</td>
+                  <td>${p.stats?.crn_l ?? 0}</td>
+                  <td>${p.stats?.crn_v ?? 0}</td>
+                  <td class="fw-bold">${p.stats?.crn_tot ?? 0}</td>
+                </tr>
+                <tr>
+                  <td class="text-start fw-bold">🟨 Tarjetas</td>
+                  <td>${p.stats?.tar_l ?? 0}</td>
+                  <td>${p.stats?.tar_v ?? 0}</td>
+                  <td class="fw-bold">${p.stats?.tar_tot ?? 0}</td>
+                </tr>
+                <tr>
+                  <td class="text-start fw-bold">🛑 Fueras de Juego</td>
+                  <td>${p.stats?.off_l ?? 0}</td>
+                  <td>${p.stats?.off_v ?? 0}</td>
+                  <td class="fw-bold">${p.stats?.off_tot ?? 0}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- RECOMENDACIÓN DIRECTA DE APUESTA -->
+            <div class="alert alert-primary d-flex justify-content-between align-items-center py-2 px-3 my-2 mb-1">
               <div>
-                <div class="fw-bold text-primary small">🎯 ${a.mercado_recomendado}</div>
-                <small class="text-muted">Probabilidad: <strong>${a.probabilidad}%</strong></small>
+                <strong class="d-block text-dark">🎯 ${p.mercado_recomendado}</strong>
+                <small class="text-muted">Probabilidad: ${p.probabilidad}% | ${p.stake}</small>
               </div>
-              <div class="text-end">
-                <span class="badge bg-primary fs-6">@${Number(a.cuota_justa || 1.10).toFixed(2)}</span>
-                <div class="small text-secondary" style="font-size:0.75rem;">${a.stake}</div>
-              </div>
+              <span class="badge bg-primary fs-6 px-3 py-2">@${p.cuota_justa}</span>
             </div>
 
-            <div class="small text-muted mb-2 fst-italic" style="font-size:0.78rem;">
-              ⚠️ ${a.alerta_riesgo}
-            </div>
+            <small class="text-muted fst-italic mb-2 d-block">⚠️ ${p.alerta_riesgo}</small>
 
-            <button class="btn btn-sm btn-outline-success fw-bold w-100" 
-              onclick="agregarAlarmaABoleta('${a.competicion_id}', '${a.local}', '${a.visitante}', '${a.mercado_recomendado}', ${a.probabilidad}, ${a.cuota_justa})">
+            <!-- BOTÓN AGREGAR A LA BOLETA -->
+            <button class="btn btn-outline-success w-100 fw-bold mt-auto" onclick="agregarABoleta('${p.fixture_id}')">
               ➕ Agregar a la Boleta
             </button>
           </div>
-        `;
-      });
+        </div>
+      `;
+    });
 
-      cont.innerHTML = html;
+    contenedor.innerHTML = html;
+  }
+
+  // MANEJO DE LA BOLETA INTERACTIVA
+  function agregarABoleta(fixId) {
+    const match = todosLosPartidos.find(p => String(p.fixture_id) === String(fixId));
+    if (!match) return;
+
+    if (boleta.some(b => String(b.fixture_id) === String(fixId))) {
+      alert("Este partido ya está en la boleta.");
+      return;
     }
 
-    function agregarAlarmaABoleta(liga, local, visitante, jugada, prob, cuota) {
-      const item = {
-        id: Date.now(),
-        liga: liga,
-        local: local,
-        visitante: visitante,
-        tipo: 'Alarma de Valor',
-        jugada: jugada,
-        prob: prob,
-        cuota: Number(cuota) || 1.25,
-        stats: {
-          xg_l: "--",
-          xg_v: "--",
-          crn: "--",
-          tar: "--",
-          off: "--",
-          top: "Generado vía Radar"
-        }
-      };
+    boleta.push(match);
+    actualizarVistaBoleta();
+  }
 
-      boletaItems.push(item);
-      renderBoleta();
-      alert(`✅ ¡Agregado a la boleta!\n${local} vs ${visitante}\n${jugada} (@${item.cuota.toFixed(2)})`);
+  function eliminarDeBoleta(fixId) {
+    boleta = boleta.filter(b => String(b.fixture_id) !== String(fixId));
+    actualizarVistaBoleta();
+  }
+
+  function limpiarBoleta() {
+    boleta = [];
+    actualizarVistaBoleta();
+  }
+
+  function actualizarVistaBoleta() {
+    document.getElementById("badge-boleta").innerText = boleta.length;
+    const lista = document.getElementById("lista-boleta");
+    const resumen = document.getElementById("resumen-boleta");
+
+    if (boleta.length === 0) {
+      lista.innerHTML = `<p class="text-muted text-center py-4">No has agregado selecciones a la boleta todavía.</p>`;
+      resumen.classList.add("d-none");
+      return;
     }
 
-    async function cargarEquipos() {
-      const selLiga = document.getElementById("select-liga");
-      if (!selLiga || !selLiga.value) return;
-      const liga = selLiga.value;
-      
-      try {
-        const res = await fetch(`/api/equipos/${liga}`);
-        if (!res.ok) return;
-        const equipos = await res.json();
-        const loc = document.getElementById("select-local");
-        const vis = document.getElementById("select-visitante");
-        loc.innerHTML = "";
-        vis.innerHTML = "";
-        equipos.forEach(eq => {
-          loc.innerHTML += `<option value="${eq}">${eq}</option>`;
-          vis.innerHTML += `<option value="${eq}">${eq}</option>`;
-        });
-        if (equipos.length > 1) vis.selectedIndex = 1;
-      } catch (e) {}
-    }
+    let cuotaTotal = 1.0;
+    let itemsHtml = "";
 
-    async function calcularPronostico() {
-      const liga = document.getElementById("select-liga").value;
-      const local = document.getElementById("select-local").value;
-      const visitante = document.getElementById("select-visitante").value;
+    boleta.forEach(b => {
+      const c = parseFloat(b.cuota_justa) || 1.0;
+      cuotaTotal *= c;
 
-      if(!local || !visitante || local === visitante) {
-        alert("Por favor, selecciona dos equipos distintos.");
-        return;
-      }
-
-      try {
-        const res = await fetch('/api/calcular', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({liga, local, visitante})
-        });
-
-        if(!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          alert("Error: " + (errData.error || res.statusText));
-          return;
-        }
-
-        const d = await res.json();
-        probData = d;
-        datosPartidoActual = { liga, local, visitante };
-
-        document.getElementById("th-local").innerText = local;
-        document.getElementById("th-vis").innerText = visitante;
-        document.querySelectorAll(".lbl-local").forEach(el => el.innerText = local);
-        document.querySelectorAll(".lbl-vis").forEach(el => el.innerText = visitante);
-
-        const l_loc = d.l_loc || 0;
-        const l_vis = d.l_vis || 0;
-        document.getElementById("td-xg-l").innerText = l_loc.toFixed(2);
-        document.getElementById("td-xg-v").innerText = l_vis.toFixed(2);
-        document.getElementById("td-xg-tot").innerText = (l_loc + l_vis).toFixed(2);
-
-        document.getElementById("td-crn-l").innerText = (d.crn_l || 0).toFixed(1);
-        document.getElementById("td-crn-v").innerText = (d.crn_v || 0).toFixed(1);
-        document.getElementById("td-crn-tot").innerText = (d.corners || 0).toFixed(1);
-
-        document.getElementById("td-tar-l").innerText = (d.tar_l || 0).toFixed(1);
-        document.getElementById("td-tar-v").innerText = (d.tar_v || 0).toFixed(1);
-        document.getElementById("td-tar-tot").innerText = (d.tarjetas || 0).toFixed(1);
-
-        document.getElementById("td-off-l").innerText = (d.off_l || 0).toFixed(1);
-        document.getElementById("td-off-v").innerText = (d.off_v || 0).toFixed(1);
-        document.getElementById("td-off-tot").innerText = (d.offsides || 0).toFixed(1);
-
-        document.getElementById("tag-xg-total").innerText = `Total: ${(l_loc + l_vis).toFixed(2)} xG`;
-        document.getElementById("txt-muestras-bd").innerText = `Partidos analizados: ${d.n_local_bd} de ${local} y ${d.n_visitante_bd} de ${visitante}.`;
-
-        const badgeConf = document.getElementById("badge-confianza");
-        const boxAlerta = document.getElementById("box-alerta-riesgo");
-        const confVal = d.indice_confianza || 7;
-
-        badgeConf.innerText = `Confianza: ${confVal} / 10`;
-        badgeConf.className = confVal < 7 ? "badge bg-danger fs-6" : "badge bg-success fs-6";
-        boxAlerta.className = confVal < 7 ? "p-2 rounded small mb-2 bg-danger-subtle text-danger fw-bold" : "p-2 rounded small mb-2 bg-success-subtle text-success fw-bold";
-        boxAlerta.innerText = d.alerta_riesgo || "Patrón estadístico normal.";
-
-        document.getElementById("txt-poisson-stats").innerHTML = `
-          <div>• xG Proyectado ${local}: <strong>${l_loc.toFixed(2)}</strong></div>
-          <div>• xG Proyectado ${visitante}: <strong>${l_vis.toFixed(2)}</strong></div>
-        `;
-
-        document.getElementById("n1-mercado").innerText = d.nivel_1.mercado;
-        document.getElementById("n1-prob").innerText = `${d.nivel_1.prob.toFixed(1)}%`;
-        document.getElementById("n1-cuota").innerText = d.nivel_1.cuota_justa.toFixed(2);
-        document.getElementById("n1-stake").innerText = d.nivel_1.stake;
-
-        document.getElementById("n2-mercado").innerText = d.nivel_2.mercado;
-        document.getElementById("n2-prob").innerText = `${d.nivel_2.prob.toFixed(1)}%`;
-        document.getElementById("n2-cuota").innerText = d.nivel_2.cuota_justa.toFixed(2);
-        document.getElementById("n2-stake").innerText = d.nivel_2.stake;
-
-        document.getElementById("n3-mercado").innerText = "Over 0.5 HT / Marcador Exacto";
-        document.getElementById("n3-cuota").innerText = `@${(d.nivel_1.cuota_justa * 1.15).toFixed(2)}`;
-        document.getElementById("n3-stake").innerText = "Stake 1.0%";
-
-        document.getElementById("btn-p-loc").innerText = `${(d.prob_loc || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-loc").innerText = `@${(d.prob_loc > 0 ? 100/d.prob_loc : 0).toFixed(2)}`;
-        document.getElementById("btn-p-emp").innerText = `${(d.prob_emp || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-emp").innerText = `@${(d.prob_emp > 0 ? 100/d.prob_emp : 0).toFixed(2)}`;
-        document.getElementById("btn-p-vis").innerText = `${(d.prob_vis || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-vis").innerText = `@${(d.prob_vis > 0 ? 100/d.prob_vis : 0).toFixed(2)}`;
-
-        document.getElementById("btn-p-o15").innerText = `${(d.o15 || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-o15").innerText = `@${(d.o15 > 0 ? 100/d.o15 : 0).toFixed(2)}`;
-        document.getElementById("btn-p-o25").innerText = `${(d.o25 || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-o25").innerText = `@${(d.o25 > 0 ? 100/d.o25 : 0).toFixed(2)}`;
-        document.getElementById("btn-p-u25").innerText = `${(100 - (d.o25 || 0)).toFixed(1)}%`;
-        document.getElementById("btn-c-u25").innerText = `@${((100 - (d.o25 || 0)) > 0 ? 100 / (100 - d.o25) : 0).toFixed(2)}`;
-        document.getElementById("btn-p-btts").innerText = `${(d.btts || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-btts").innerText = `@${(d.btts > 0 ? 100/d.btts : 0).toFixed(2)}`;
-
-        document.getElementById("btn-p-crn-o85").innerText = `${(d.crn_o85 || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-crn-o85").innerText = `@${(d.crn_o85 > 0 ? 100/d.crn_o85 : 0).toFixed(2)}`;
-        document.getElementById("btn-p-crn-u85").innerText = `${(100 - (d.crn_o85 || 0)).toFixed(1)}%`;
-        document.getElementById("btn-c-crn-u85").innerText = `@${((100 - (d.crn_o85 || 0)) > 0 ? 100/(100 - d.crn_o85) : 0).toFixed(2)}`;
-
-        document.getElementById("btn-p-tar-o35").innerText = `${(d.tar_o35 || 0).toFixed(1)}%`;
-        document.getElementById("btn-c-tar-o35").innerText = `@${(d.tar_o35 > 0 ? 100/d.tar_o35 : 0).toFixed(2)}`;
-        document.getElementById("btn-p-tar-u35").innerText = `${(100 - (d.tar_o35 || 0)).toFixed(1)}%`;
-        document.getElementById("btn-c-tar-u35").innerText = `@${((100 - (d.tar_o35 || 0)) > 0 ? 100/(100 - d.tar_o35) : 0).toFixed(2)}`;
-
-        document.getElementById("txt-top3").innerText = (d.top_3 || []).map(m => `${m[0]} (${m[1].toFixed(1)}%)`).join(" | ");
-
-        const panel = document.getElementById("resultado-panel");
-        panel.classList.remove("d-none");
-        panel.scrollIntoView({ behavior: 'smooth' });
-
-      } catch (err) {
-        alert("Error de conexión: " + err.message);
-      }
-    }
-
-    function seleccionarNivel(nivelNum) {
-      if(!datosPartidoActual || !probData) return;
-      let objNivel = probData[`nivel_${nivelNum}`] || probData.nivel_1;
-      seleccionarMercado(`Nivel ${nivelNum}`, objNivel.mercado, objNivel.prob, objNivel.cuota_justa);
-    }
-
-    function seleccionarMercado(tipo, jugada, prob, cuota) {
-      if(!datosPartidoActual || !probData) return;
-
-      const item = {
-        id: Date.now(),
-        liga: datosPartidoActual.liga,
-        local: datosPartidoActual.local,
-        visitante: datosPartidoActual.visitante,
-        tipo: tipo,
-        jugada: jugada,
-        prob: prob,
-        cuota: Number(cuota) || 1.25,
-        stats: {
-          xg_l: (probData.l_loc || 0).toFixed(2),
-          xg_v: (probData.l_vis || 0).toFixed(2),
-          crn: (probData.corners || 0).toFixed(1),
-          tar: (probData.tarjetas || 0).toFixed(1),
-          off: (probData.offsides || 0).toFixed(1),
-          top: (probData.top_3 || []).map(m => `${m[0]} (${m[1].toFixed(0)}%)`).join(", ")
-        }
-      };
-
-      boletaItems.push(item);
-      renderBoleta();
-      alert(`✅ ¡Selección agregada!\n${item.local} vs ${item.visitante}\n${jugada} (@${item.cuota.toFixed(2)})`);
-    }
-
-    function renderBoleta() {
-      const cont = document.getElementById("boleta-contenedor");
-      document.getElementById("badge-boleta").innerText = boletaItems.length;
-
-      if(boletaItems.length === 0) {
-        cont.innerHTML = '<p class="text-muted text-center py-4 small">No tienes selecciones guardadas. Toca un pronóstico en "Alarmas" o "Analizar" para agregarlo.</p>';
-        document.getElementById("boleta-cuota").innerText = "@1.00";
-        document.getElementById("boleta-prob").innerText = "100.0%";
-        return;
-      }
-
-      let html = "";
-      let cuotaComb = 1.0;
-      let probComb = 1.0;
-
-      boletaItems.forEach((it) => {
-        cuotaComb *= it.cuota;
-        probComb *= (it.prob / 100);
-
-        html += `
-          <div class="accordion-item mb-2 border rounded shadow-sm">
-            <h2 class="accordion-header" id="heading-${it.id}">
-              <button class="accordion-button collapsed py-2 px-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${it.id}">
-                <div class="w-100 pe-2">
-                  <div class="d-flex justify-content-between align-items-center">
-                    <strong class="text-dark small">${it.local} vs ${it.visitante}</strong>
-                    <span class="badge bg-primary">@${it.cuota.toFixed(2)}</span>
-                  </div>
-                  <div class="text-success small fw-bold mt-1">
-                    📌 ${it.tipo}: ${it.jugada} (${it.prob.toFixed(1)}%)
-                  </div>
-                </div>
-              </button>
-            </h2>
-            <div id="collapse-${it.id}" class="accordion-collapse collapse" data-bs-parent="#boleta-contenedor">
-              <div class="accordion-body bg-light p-3 small">
-                <div class="row g-2 text-center mb-2">
-                  <div class="col-6 p-1 border rounded bg-white"><strong>xG:</strong> ${it.stats.xg_l} | ${it.stats.xg_v}</div>
-                  <div class="col-6 p-1 border rounded bg-white"><strong>Córners:</strong> ${it.stats.crn}</div>
-                  <div class="col-6 p-1 border rounded bg-white"><strong>Tarjetas:</strong> ${it.stats.tar}</div>
-                  <div class="col-6 p-1 border rounded bg-white"><strong>Offsides:</strong> ${it.stats.off}</div>
-                </div>
-                <button class="btn btn-sm btn-outline-danger w-100 py-1" onclick="eliminarItem(${it.id})">🗑️ Eliminar</button>
-              </div>
-            </div>
+      itemsHtml += `
+        <div class="d-flex justify-content-between align-items-center p-2 mb-2 border rounded bg-light">
+          <div>
+            <div class="fw-bold small text-dark">${b.local} vs ${b.visitante}</div>
+            <div class="text-success fw-bold small">${b.mercado_recomendado}</div>
           </div>
-        `;
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-primary">@${b.cuota_justa}</span>
+            <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="eliminarDeBoleta('${b.fixture_id}')">✕</button>
+          </div>
+        </div>
+      `;
+    });
+
+    lista.innerHTML = itemsHtml;
+    document.getElementById("total-cuota-boleta").innerText = `@${cuotaTotal.toFixed(2)}`;
+    resumen.classList.remove("d-none");
+  }
+
+  // EQUIPOS PARA ANÁLISIS MANUAL
+  function actualizarEquiposLiga() {
+    const liga = document.getElementById("select-liga-manual").value;
+    const selLoc = document.getElementById("select-local-manual");
+    const selVis = document.getElementById("select-visitante-manual");
+
+    fetch(`/api/equipos/${liga}`)
+      .then(res => res.json())
+      .then(equipos => {
+        selLoc.innerHTML = "";
+        selVis.innerHTML = "";
+        equipos.forEach(eq => {
+          selLoc.innerHTML += `<option value="${eq}">${eq}</option>`;
+          selVis.innerHTML += `<option value="${eq}">${eq}</option>`;
+        });
+        if (equipos.length > 1) selVis.selectedIndex = 1;
       });
+  }
 
-      cont.innerHTML = html;
-      document.getElementById("boleta-cuota").innerText = `@${cuotaComb.toFixed(2)}`;
-      document.getElementById("boleta-prob").innerText = `${(probComb * 100).toFixed(2)}%`;
+  function calcularManual() {
+    const liga = document.getElementById("select-liga-manual").value;
+    const loc = document.getElementById("select-local-manual").value;
+    const vis = document.getElementById("select-visitante-manual").value;
+    const resDiv = document.getElementById("resultado-manual");
+
+    if (loc === vis) {
+      resDiv.innerHTML = `<div class="alert alert-warning">Selecciona dos equipos diferentes.</div>`;
+      return;
     }
 
-    function eliminarItem(id) {
-      boletaItems = boletaItems.filter(x => x.id !== id);
-      renderBoleta();
+    resDiv.innerHTML = `<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div> Calculando...</div>`;
+
+    fetch('/api/calcular', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ liga: liga, local: loc, visitante: vis })
+    })
+    .then(r => r.json())
+    .then(d => {
+      resDiv.innerHTML = `
+        <div class="card p-3 bg-light border">
+          <h6 class="fw-bold mb-2">Auditoría Real: ${loc} vs ${vis}</h6>
+          <div class="alert alert-success py-2 mb-2">
+            <strong>🎯 Selección:</strong> ${d.mercado}<br>
+            <strong>Cuota Justa:</strong> @${d.cuota_justa} | <strong>Probabilidad:</strong> ${d.probabilidad}%
+          </div>
+          <small class="text-muted">⚽ Goles: ${d.gl_l} vs ${d.gl_v} | 🚩 Córners: ${d.crn_tot} | 🟨 Tarjetas: ${d.tar_tot} | 🛑 Offsides: ${d.off_tot}</small>
+        </div>
+      `;
+    })
+    .catch(err => {
+      resDiv.innerHTML = `<div class="alert alert-danger">Error: ${err}</div>`;
+    });
+  }
+
+  // AGREGAR O SINCRONIZAR LIGA
+  function sincronizarLiga() {
+    const url = document.getElementById("input-url-liga").value.trim();
+    const fecha = document.getElementById("input-fecha-liga").value.trim();
+    const msgDiv = document.getElementById("msg-sincronizacion");
+
+    if (!url) {
+      msgDiv.innerHTML = `<div class="alert alert-warning">Ingresa un código o enlace.</div>`;
+      return;
     }
 
-    function limpiarBoleta() {
-      if(confirm("¿Deseas vaciar la boleta completa?")) {
-        boletaItems = [];
-        renderBoleta();
+    msgDiv.innerHTML = `<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-success"></div> Sincronizando historial de 15 días con ESPN y Supabase...</div>`;
+
+    fetch('/api/agregar_enlace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url, fecha: fecha })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        msgDiv.innerHTML = `<div class="alert alert-success">${d.msg}</div>`;
+        cargarAlarmas(false);
+      } else {
+        msgDiv.innerHTML = `<div class="alert alert-danger">${d.msg}</div>`;
       }
-    }
+    })
+    .catch(err => {
+      msgDiv.innerHTML = `<div class="alert alert-danger">Error en sincronización: ${err}</div>`;
+    });
+  }
+</script>
 
-    async function ejecutarSincronizacion() {
-      const liga = document.getElementById("sync-liga").value;
-      const fecha = document.getElementById("sync-fecha").value;
-      const st = document.getElementById("sync-status");
-      st.className = "alert alert-warning mt-3 small";
-      st.innerText = "Consultando partidos...";
-      st.classList.remove("d-none");
-
-      const res = await fetch('/api/agregar_enlace', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({url: liga, fecha: fecha})
-      });
-      const d = await res.json();
-      st.className = d.success ? "alert alert-success mt-3 small" : "alert alert-danger mt-3 small";
-      st.innerText = d.msg;
-    }
-
-    async function agregarNuevoEnlace() {
-      const url = document.getElementById("nuevo-enlace").value;
-      const st = document.getElementById("enlace-status");
-      st.className = "alert alert-warning mt-2 small";
-      st.innerText = "Rastreando datos...";
-      st.classList.remove("d-none");
-
-      const res = await fetch('/api/agregar_enlace', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({url})
-      });
-      const d = await res.json();
-      st.className = d.success ? "alert alert-success mt-2 small" : "alert alert-danger mt-2 small";
-      st.innerText = d.msg;
-      if(d.success) {
-        setTimeout(() => location.reload(), 2000);
-      }
-    }
-  </script>
 </body>
 </html>
