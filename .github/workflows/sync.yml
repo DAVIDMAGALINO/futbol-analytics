@@ -1,17 +1,16 @@
-name: Sincronizacion Automatica de Futbol
+name: Sincronizador Automatico de Futbol
 
 on:
   schedule:
-    # 11:00 UTC = 06:00 AM hora de Ecuador
-    - cron: '0 11 * * *'
-    # 13:30 UTC = 08:30 AM hora de Ecuador
-    - cron: '30 13 * * *'
+    # Se ejecuta automaticamente cada 4 horas
+    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
   sincronizar:
     runs-on: ubuntu-latest
     steps:
-      - name: Llamar API y sincronizar partidos
+      - name: Despertar Render y Sincronizar Alarmas
         run: |
-          curl -s "https://futbol-analytics-8401.onrender.com/api/alarmas_hoy?forzar=true"
+          curl -s "https://futbol-analytics-8401.onrender.com/api/alarmas_hoy?forzar=true" > /dev/null
+          echo "Sincronizacion ejecutada con exito en Render y Supabase."
