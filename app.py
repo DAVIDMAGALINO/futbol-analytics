@@ -1,4 +1,4 @@
-import os
+imporimport os
 import sqlite3
 import math
 import json
@@ -6,7 +6,7 @@ import urllib.request
 import urllib.error
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, request, jsonify
 
 try:
@@ -57,7 +57,7 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 21 LIGAS COMPLETAS (SIN REPETIDOS)
+# 21 LIGAS OFICIALES CONSOLIDADAS SIN DUPLICADOS
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -183,7 +183,7 @@ def inicializar_bd():
         """)
         conn.commit()
 
-        # Inserción idempotente sin duplicar registros
+        # Inserción asegurada sin duplicados
         for lid, lnom, lpais in LIGAS_INICIALES:
             try:
                 cur.execute("""
@@ -246,6 +246,46 @@ except Exception as e:
     print(f"Aviso durante inicializar_bd: {e}")
 
 # ==============================================================================
+# MANEJO HORARIO EXACTO ECUADOR (UTC-5)
+# ==============================================================================
+def formatear_fecha_hora_ecuador(valor_fecha):
+    if not valor_fecha:
+        return datetime.now().strftime("%Y-%m-%d"), "Por definir"
+    try:
+        dt = None
+        if isinstance(valor_fecha, datetime):
+            if valor_fecha.tzinfo is not None:
+                dt_utc = valor_fecha.astimezone(timezone.utc)
+                dt = dt_utc - timedelta(hours=5)
+            else:
+                dt = valor_fecha - timedelta(hours=5)
+        else:
+            s = str(valor_fecha).strip()
+            # ESPN devuelve T00:00Z cuando la liga aún no define la hora
+            if "T00:00" in s or " 00:00:00" in s:
+                fecha_base = s.split("T")[0].split(" ")[0]
+                return fecha_base, "Por definir"
+
+            s_iso = s.replace("Z", "+00:00")
+            if "+" in s_iso or ("-" in s_iso[10:]):
+                dt_obj = datetime.fromisoformat(s_iso)
+                if dt_obj.tzinfo is not None:
+                    dt = dt_obj.astimezone(timezone.utc) - timedelta(hours=5)
+                else:
+                    dt = dt_obj - timedelta(hours=5)
+            else:
+                dt_obj = datetime.fromisoformat(s)
+                dt = dt_obj - timedelta(hours=5)
+
+        if dt:
+            return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M")
+    except Exception:
+        pass
+
+    s_raw = str(valor_fecha)
+    return s_raw[:10], "Por definir"
+
+# ==============================================================================
 # UTILIDADES & PARSING ESPN
 # ==============================================================================
 def fetch_url(url):
@@ -256,23 +296,6 @@ def fetch_url(url):
 def get_json(url):
     contenido = fetch_url(url)
     return json.loads(contenido)
-
-def convertir_a_hora_ecuador(fecha_iso_utc):
-    if not fecha_iso_utc:
-        return "Por definir"
-    try:
-        limpio = str(fecha_iso_utc).replace("Z", "+00:00")
-        dt_utc = datetime.fromisoformat(limpio)
-        dt_ecuador = dt_utc - timedelta(hours=5)
-        return dt_ecuador.strftime("%H:%M")
-    except Exception:
-        m = re.search(r'T(\d{2}):(\d{2})', str(fecha_iso_utc))
-        if m:
-            h_utc = int(m.group(1))
-            minutos = m.group(2)
-            h_ecuador = (h_utc - 5) % 24
-            return f"{h_ecuador:02d}:{minutos}"
-        return "Por definir"
 
 def descargar_resumen_evento(codigo_liga, event_id):
     url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{codigo_liga}/summary?event={event_id}"
@@ -325,7 +348,10 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             gv = int(vis_c.get("score", 0) or 0)
             
             st = descargar_resumen_evento(codigo_liga, fix_id)
-            fecha_iso = ev.get("date", datetime.now().isoformat())
+            
+            # Obtener la hora real oficial enviada por ESPN en el objeto competition
+            comp_info = ev.get("competitions", [{}])[0]
+            fecha_iso = comp_info.get("date") or ev.get("date") or datetime.now().isoformat()
             estado = "finalizado" if ev.get("status", {}).get("type", {}).get("completed", False) else "programado"
 
             if is_pg:
@@ -335,6 +361,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
                      corners_local, corners_visitante, tarjetas_local, tarjetas_visitante, offsides_local, offsides_visitante, estado)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (fixture_id) DO UPDATE SET 
+                        fecha = EXCLUDED.fecha,
                         goles_local = EXCLUDED.goles_local,
                         goles_visitante = EXCLUDED.goles_visitante,
                         corners_local = EXCLUDED.corners_local,
@@ -525,14 +552,15 @@ def api_partidos_guardados():
     """, fetch="all") or []
     
     for r in filas:
-        r["hora_ecuador"] = convertir_a_hora_ecuador(r.get("fecha"))
+        f_ecu, h_ecu = formatear_fecha_hora_ecuador(r.get("fecha"))
+        r["fecha"] = f_ecu
+        r["hora_ecuador"] = h_ecu
     return jsonify({"success": True, "partidos": filas})
 
 @app.route('/api/alarmas_hoy')
 def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
 
-    # Sincronización automática de las 21 ligas consolidadas
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
@@ -557,15 +585,14 @@ def api_alarmas_hoy():
         vis = p["visitante"]
         res = auditar_partido_flexible(p["competicion_id"], loc, vis)
         
-        f_raw = str(p.get("fecha") or "")
-        f_iso = f_raw[:10] if len(f_raw) >= 10 else datetime.now().strftime("%Y-%m-%d")
+        fecha_ecu, hora_ecu = formatear_fecha_hora_ecuador(p.get("fecha"))
 
         alarmas.append({
             "fixture_id": p.get("fixture_id"),
             "competicion_nombre": p.get("competicion_nombre", p.get("competicion_id")),
             "competicion_id": p.get("competicion_id"),
-            "fecha": f_iso,
-            "hora_ecuador": convertir_a_hora_ecuador(p.get("fecha")),
+            "fecha": fecha_ecu,
+            "hora_ecuador": hora_ecu,
             "local": loc,
             "visitante": vis,
             "estado": p.get("estado", "programado"),
