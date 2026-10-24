@@ -156,27 +156,33 @@ async function cargarAlarmas(forzar = false) {
     const status = document.getElementById('status-container');
     const grid = document.getElementById('matches-grid');
 
+    // Limpiar cualquier alerta previa de inmediato
+    status.innerHTML = '';
+
     if (forzar) {
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Escaneando 23 Ligas...`;
-        status.innerHTML = `<div class="alert alert-info py-2 small">Sincronizando partidos con ESPN y Supabase. Espera un momento...</div>`;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Escaneando...`;
     }
 
     try {
         const resp = await fetch(`/api/alarmas_hoy?forzar=${forzar}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
         const data = await resp.json();
 
-        if (data.success && Array.isArray(data.alarmas)) {
+        if (data && data.success && Array.isArray(data.alarmas)) {
             todasLasAlarmas = data.alarmas;
             document.getElementById('count-alarmas').textContent = todasLasAlarmas.length;
             construirFiltrosFecha();
             renderizarTarjetas();
-            status.innerHTML = '';
-        } else {
-            status.innerHTML = `<div class="alert alert-warning py-2 small">No se recibieron alarmas: ${data.error || 'Respuesta vacía.'}</div>`;
+            status.innerHTML = ''; // Garantiza que no quede cartel rojo
         }
     } catch (err) {
-        status.innerHTML = `<div class="alert alert-danger py-2 small">Error de conexión: ${err.message}</div>`;
+        console.warn("Fallo temporal de lectura:", err);
+        // Si ya hay partidos en pantalla, no mostrar error molesto
+        if (todasLasAlarmas.length === 0) {
+            status.innerHTML = `<div class="alert alert-warning py-2 small">Cargando datos del servidor...</div>`;
+        }
     } finally {
         btn.disabled = false;
         btn.innerHTML = `⚡ Escaneo en Vivo`;
