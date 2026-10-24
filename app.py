@@ -1,4 +1,4 @@
-imporimport os
+import os
 import sqlite3
 import math
 import json
