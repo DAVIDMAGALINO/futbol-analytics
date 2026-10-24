@@ -57,7 +57,7 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 21 LIGAS CONSOLIDADAS Y SIN DUPLICADOS
+# 21 LIGAS OFICIALES SIN DUPLICADOS
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -386,7 +386,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         return 0, str(e)
 
 # ==============================================================================
-# MOTOR POISSON & AUDITORÍA
+# MOTOR POISSON & AUDITORÍA CORREGIDO
 # ==============================================================================
 def poisson_prob(lmbda, k):
     if lmbda <= 0:
@@ -395,16 +395,19 @@ def poisson_prob(lmbda, k):
 
 def auditar_partido_flexible(competicion_id, local, visitante):
     def obtener_stats_reales(club, es_local):
+        # SOLO CONSULTAR PARTIDOS FINALIZADOS PARA NO PROMEDIAR CEROS DE ENCUENTROS PROGRAMADOS
         if es_local:
             filas = ejecutar_sql("""
                 SELECT goles_local, corners_local, tarjetas_local, offsides_local 
-                FROM partidos WHERE competicion_id = ? AND UPPER(local) = ? 
+                FROM partidos 
+                WHERE competicion_id = ? AND UPPER(local) = ? AND estado = 'finalizado'
                 ORDER BY fecha DESC LIMIT 5
             """, (competicion_id, club.upper()), fetch="all")
         else:
             filas = ejecutar_sql("""
                 SELECT goles_visitante, corners_visitante, tarjetas_visitante, offsides_visitante 
-                FROM partidos WHERE competicion_id = ? AND UPPER(visitante) = ? 
+                FROM partidos 
+                WHERE competicion_id = ? AND UPPER(visitante) = ? AND estado = 'finalizado'
                 ORDER BY fecha DESC LIMIT 5
             """, (competicion_id, club.upper()), fetch="all")
 
@@ -414,7 +417,8 @@ def auditar_partido_flexible(competicion_id, local, visitante):
                        CASE WHEN UPPER(local) = ? THEN corners_local ELSE corners_visitante END AS c,
                        CASE WHEN UPPER(local) = ? THEN tarjetas_local ELSE tarjetas_visitante END AS t,
                        CASE WHEN UPPER(local) = ? THEN offsides_local ELSE offsides_visitante END AS o
-                FROM partidos WHERE competicion_id = ? AND (UPPER(local) = ? OR UPPER(visitante) = ?)
+                FROM partidos 
+                WHERE competicion_id = ? AND (UPPER(local) = ? OR UPPER(visitante) = ?) AND estado = 'finalizado'
                 ORDER BY fecha DESC LIMIT 5
             """, (club.upper(), club.upper(), club.upper(), club.upper(), competicion_id, club.upper(), club.upper()), fetch="all")
 
@@ -425,7 +429,9 @@ def auditar_partido_flexible(competicion_id, local, visitante):
             avg_tarjetas = sum(f.get("tarjetas_local" if es_local else "tarjetas_visitante", f.get("t", 0)) for f in filas) / n
             avg_offsides = sum(f.get("offsides_local" if es_local else "offsides_visitante", f.get("o", 0)) for f in filas) / n
             return n, float(avg_goles), float(avg_corners), float(avg_tarjetas), float(avg_offsides)
-        return 0, 1.2, 4.5, 2.0, 1.5
+        
+        # PROMEDIOS POR DEFECTO REALISTAS CUANDO AÚN NO HAY HISTORIAL DEL CLUB EN LA BD
+        return 0, (1.35 if es_local else 1.10), 4.8, 2.2, 1.8
 
     n_l, l_loc, crn_l, tar_l, off_l = obtener_stats_reales(local, True)
     n_v, l_vis, crn_v, tar_v, off_v = obtener_stats_reales(visitante, False)
@@ -466,31 +472,36 @@ def auditar_partido_flexible(competicion_id, local, visitante):
 
     indice_confianza = 8
     alerta_riesgo = "Métricas estadísticas validadas."
-    if l_loc == 0.0 or l_vis == 0.0:
-        indice_confianza -= 2
-        alerta_riesgo = f"Sequía ofensiva: {'Local' if l_loc == 0.0 else 'Visitante'} con 0.00 goles."
-    if (n_l + n_v) < 6:
+    if n_l == 0 or n_v == 0:
+        indice_confianza = 5
+        alerta_riesgo = f"Historial base: Sin partidos finalizados previos para {'local' if n_l == 0 else 'visitante'}."
+    elif (n_l + n_v) < 6:
         indice_confianza -= 2
         alerta_riesgo += f" (Muestra corta en BD: {n_l + n_v} partidos)."
 
     p_n1 = max(p_loc_2plus, p_crn_o85)
     tipo_mercado = "goles_loc" if p_loc_2plus >= p_crn_o85 else "corners"
+
+    # CONTROL ESTRICTO DE CUOTA JUSTA PARA EVITAR NÚMEROS ASTRONÓMICOS
+    cuota_n1_calc = (100.0 / p_n1) if p_n1 >= 6.7 else 15.00
     nivel_1 = {
         "tipo": tipo_mercado,
         "mercado": f"Over 1.5 Goles {local}" if tipo_mercado == "goles_loc" else "Más de 8.5 Córners Totales",
-        "prob": p_n1,
-        "cuota_justa": (100.0 / p_n1) if p_n1 > 0 else 99.0,
+        "prob": max(1.0, p_n1),
+        "cuota_justa": min(15.00, max(1.01, cuota_n1_calc)),
         "stake": "Stake 2.5% - 3.0%"
     }
 
     prob_over25 = p_o25 * 100
     prob_under25 = 100.0 - prob_over25
     es_over = prob_over25 >= prob_under25
+    prob_max_n2 = max(prob_over25, prob_under25)
+    cuota_n2_calc = (100.0 / prob_max_n2) if prob_max_n2 >= 6.7 else 15.00
     nivel_2 = {
         "tipo": "o25" if es_over else "u25",
         "mercado": "Más de 2.5 Goles Totales" if es_over else "Menos de 2.5 Goles Totales",
-        "prob": max(prob_over25, prob_under25),
-        "cuota_justa": (100.0 / max(prob_over25, prob_under25)) if max(prob_over25, prob_under25) > 0 else 99.0,
+        "prob": max(1.0, prob_max_n2),
+        "cuota_justa": min(15.00, max(1.01, cuota_n2_calc)),
         "stake": "Stake 1.5% - 2.0%"
     }
 
@@ -560,18 +571,18 @@ def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
     ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
-    # 1. Sincronización completa: ayer, hoy y los próximos 5 días sin cortes
+    # 1. BARRIDO CON HISTORIAL: 14 DÍAS HACIA ATRÁS Y 6 HACIA ADELANTE
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
         
-        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 6)]
+        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-14, 7)]
         
         for cod in codigos_a_escanear:
             for f_str in fechas_consulta:
                 descargar_partidos_fecha(cod, f_str)
 
-    # 2. Consultar partidos a partir de ayer en Ecuador sin LIMIT artificial
+    # 2. MOSTRAR EN PANTALLA PARTIDOS DESDE AYER EN ADELANTE
     ayer_ecuador_str = (ahora_ecuador - timedelta(days=1)).strftime("%Y-%m-%d")
     partidos_bd = ejecutar_sql("""
         SELECT p.*, c.nombre as competicion_nombre 
@@ -672,7 +683,7 @@ def api_agregar_enlace():
         ejecutar_sql("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)", (cod_detectado, cod_detectado.upper()))
 
     tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
-    for i in [1, 2]:
+    for i in [1, 2, 3, 4, 5]:
         fec = (ahora_ecu - timedelta(days=i)).strftime("%Y%m%d")
         c, _ = descargar_partidos_fecha(cod_detectado, fec)
         tot += c
