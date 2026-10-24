@@ -52,6 +52,19 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana"
 }
 
+LIGAS_INICIALES = [
+    ("ecu.1", "LigaPro Ecuador", "Ecuador"),
+    ("esp.1", "LaLiga España", "España"),
+    ("eng.1", "Premier League", "Inglaterra"),
+    ("ita.1", "Serie A Italia", "Italia"),
+    ("ger.1", "Bundesliga", "Alemania"),
+    ("fra.1", "Ligue 1", "Francia"),
+    ("col.1", "Liga BetPlay", "Colombia"),
+    ("arg.1", "Liga Profesional", "Argentina"),
+    ("conmebol.libertadores", "Copa Libertadores", "Sudamérica"),
+    ("uefa.champions", "UEFA Champions League", "Europa")
+]
+
 # ==============================================================================
 # CONEXIÓN A BASE DE DATOS (SUPABASE DIRECTO / FALLBACK SQLITE)
 # ==============================================================================
@@ -61,25 +74,29 @@ def get_db_connection():
     if env_url and PG_DISPONIBLE:
         try:
             url = env_url.replace("postgres://", "postgresql://", 1)
-            return psycopg2.connect(url, sslmode='require')
-        except Exception:
-            pass
-
-    # 2. Conexión directa a Supabase (evita fallos de codificación con %)
-    if PG_DISPONIBLE:
-        try:
-            return psycopg2.connect(
-                host="aws-0-us-west-1.pooler.supabase.com",
-                port=6543,
-                dbname="postgres",
-                user="postgres.waldnnzetbbmbsyokzxp",
-                password="CHIqui18..%",
-                sslmode="require"
-            )
+            return psycopg2.connect(url, sslmode='require', connect_timeout=10)
         except Exception as e:
-            print(f"Aviso Supabase: {e}. Usando SQLite local.")
+            print(f"Fallo conectando por DATABASE_URL: {e}")
 
-    return sqlite3.connect(DB_NAME)
+    # 2. Conexión directa a Supabase (puerto 5432 o 6543)
+    if PG_DISPONIBLE:
+        for port in [5432, 6543]:
+            try:
+                return psycopg2.connect(
+                    host="aws-0-us-west-1.pooler.supabase.com",
+                    port=port,
+                    dbname="postgres",
+                    user="postgres.waldnnzetbbmbsyokzxp",
+                    password="CHIqui18..%",
+                    sslmode="require",
+                    connect_timeout=8
+                )
+            except Exception as e:
+                print(f"Aviso Supabase puerto {port}: {e}")
+
+    # Fallback SQLite local
+    conn = sqlite3.connect(DB_NAME)
+    return conn
 
 def ejecutar_sql(query, params=(), fetch=None):
     conn = get_db_connection()
@@ -104,11 +121,17 @@ def ejecutar_sql(query, params=(), fetch=None):
         conn.commit()
         return res
     except Exception as ex:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"Error SQL: {ex}")
         return [] if fetch == "all" else None
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def inicializar_bd():
     conn = get_db_connection()
@@ -146,6 +169,18 @@ def inicializar_bd():
             );
         """)
         conn.commit()
+
+        # Asegurar ligas predeterminadas en Supabase
+        for lid, lnom, lpais in LIGAS_INICIALES:
+            try:
+                cur.execute("""
+                    INSERT INTO competiciones (id, nombre, pais, activa)
+                    VALUES (%s, %s, %s, 1)
+                    ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre, pais = EXCLUDED.pais, activa = 1
+                """, (lid, lnom, lpais))
+            except Exception:
+                pass
+        conn.commit()
     else:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS competiciones (
@@ -176,7 +211,6 @@ def inicializar_bd():
                 updated_at TEXT
             );
         """)
-        # Parche de migración preventiva para SQLite local
         cur = conn.cursor()
         try:
             cur.execute("ALTER TABLE competiciones ADD COLUMN pais TEXT")
@@ -184,9 +218,19 @@ def inicializar_bd():
         except Exception:
             pass
 
+        for lid, lnom, lpais in LIGAS_INICIALES:
+            try:
+                cur.execute("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, ?, 1)", (lid, lnom, lpais))
+            except Exception:
+                pass
+        conn.commit()
+
     conn.close()
 
-inicializar_bd()
+try:
+    inicializar_bd()
+except Exception as e:
+    print(f"Aviso durante inicializar_bd: {e}")
 
 # ==============================================================================
 # UTILIDADES & PARSING ESPN
@@ -436,8 +480,26 @@ def auditar_partido_flexible(competicion_id, local, visitante):
 @app.route('/')
 def home():
     ligas = ejecutar_sql("SELECT id, nombre, pais FROM competiciones WHERE activa = 1 ORDER BY nombre", fetch="all") or []
+    
+    # Respaldo preventivo si la tabla aún no se ha sincronizado
+    if not ligas:
+        ligas = [{"id": l[0], "nombre": l[1], "pais": l[2]} for l in LIGAS_INICIALES]
+        
     fecha_hoy = datetime.now().strftime("%Y%m%d")
     return render_template('index.html', ligas=ligas, fecha_hoy=fecha_hoy)
+
+@app.route('/api/equipos/<liga>')
+def api_equipos(liga):
+    filas = ejecutar_sql("""
+        SELECT DISTINCT local as equipo FROM partidos WHERE competicion_id = ?
+        UNION
+        SELECT DISTINCT visitante as equipo FROM partidos WHERE competicion_id = ?
+        ORDER BY equipo
+    """, (liga, liga), fetch="all") or []
+    equipos = [f["equipo"] for f in filas if f.get("equipo")]
+    if not equipos:
+        equipos = ["EQUIPO LOCAL", "EQUIPO VISITANTE"]
+    return jsonify(equipos)
 
 @app.route('/api/partidos_guardados')
 def api_partidos_guardados():
@@ -501,39 +563,42 @@ def api_auditoria_finalizados():
 @app.route('/api/alarmas_hoy')
 def api_alarmas_hoy():
     hoy_str = datetime.now().strftime("%Y-%m-%d")
-    conn = get_db_connection()
-    is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
-    conn.close()
+    dias_param = request.args.get('dias', '2')
+    forzar = request.args.get('forzar', 'false').lower() == 'true'
 
-    if is_pg:
-        partidos_hoy = ejecutar_sql("""
-            SELECT p.*, c.nombre as competicion_nombre 
-            FROM partidos p
-            LEFT JOIN competiciones c ON p.competicion_id = c.id
-            WHERE CAST(p.fecha AS TEXT) LIKE ? OR p.estado = 'programado'
-            ORDER BY p.fecha ASC
-        """, (f"{hoy_str}%",), fetch="all") or []
-    else:
-        partidos_hoy = ejecutar_sql("""
-            SELECT p.*, c.nombre as competicion_nombre 
-            FROM partidos p
-            LEFT JOIN competiciones c ON p.competicion_id = c.id
-            WHERE p.fecha LIKE ? OR p.estado = 'programado'
-            ORDER BY p.fecha ASC
-        """, (f"{hoy_str}%",), fetch="all") or []
+    # Si se pide Escaneo en Vivo, sincronizar ligas principales con ESPN
+    if forzar:
+        ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
+        for l in ligas_sync:
+            descargar_partidos_fecha(l["id"], datetime.now().strftime("%Y%m%d"))
+            descargar_partidos_fecha(l["id"], (datetime.now() + timedelta(days=1)).strftime("%Y%m%d"))
+
+    # Consultar partidos programados, en juego o recientes
+    partidos_hoy = ejecutar_sql("""
+        SELECT p.*, c.nombre as competicion_nombre 
+        FROM partidos p
+        LEFT JOIN competiciones c ON p.competicion_id = c.id
+        ORDER BY p.fecha DESC LIMIT 80
+    """, fetch="all") or []
 
     alarmas = []
     for p in partidos_hoy:
         loc = p["local"]
         vis = p["visitante"]
         res = auditar_partido_flexible(p["competicion_id"], loc, vis)
+        f_raw = str(p.get("fecha") or "")
+        f_formateada = f_raw[:10].replace("-", "") if len(f_raw) >= 10 else datetime.now().strftime("%Y%m%d")
+
         alarmas.append({
             "fixture_id": p.get("fixture_id"),
             "competicion_nombre": p.get("competicion_nombre", p.get("competicion_id")),
+            "competicion_id": p.get("competicion_id"),
+            "fecha": f_formateada,
             "hora_ecuador": convertir_a_hora_ecuador(p.get("fecha")),
             "local": loc,
             "visitante": vis,
             "estado": p.get("estado", "programado"),
+            "marcador": f"{p.get('goles_local', 0)} - {p.get('goles_visitante', 0)}" if p.get("estado") == "finalizado" else None,
             "confianza": res["indice_confianza"],
             "alerta_riesgo": res["alerta_riesgo"],
             "mercado_recomendado": res["nivel_1"]["mercado"],
@@ -579,8 +644,10 @@ def api_guardar_partido_manual():
 def api_agregar_enlace():
     data = request.json or {}
     url = data.get('url', '').strip().lower()
+    fecha_req = data.get('fecha') or datetime.now().strftime("%Y%m%d")
+
     if not url:
-        return jsonify({"success": False, "msg": "Enlace vacío."})
+        return jsonify({"success": False, "msg": "Enlace o código vacío."})
     
     cod_detectado = None
     for k, v in DICCIONARIO_LIGAS.items():
@@ -593,8 +660,11 @@ def api_agregar_enlace():
         if m:
             cod_detectado = m.group(1).lower()
 
+    if not cod_detectado and re.match(r'^[a-z0-9_\.]+$', url):
+        cod_detectado = url
+
     if not cod_detectado:
-        return jsonify({"success": False, "msg": "No se reconoció la liga en el enlace."})
+        return jsonify({"success": False, "msg": "No se reconoció la liga."})
 
     conn = get_db_connection()
     is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
@@ -602,19 +672,20 @@ def api_agregar_enlace():
 
     if is_pg:
         ejecutar_sql("""
-            INSERT INTO competiciones (id, nombre, activa) VALUES (?, ?, 1)
+            INSERT INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)
             ON CONFLICT (id) DO UPDATE SET activa = 1
         """, (cod_detectado, cod_detectado.upper()))
     else:
-        ejecutar_sql("INSERT OR REPLACE INTO competiciones (id, nombre, activa) VALUES (?, ?, 1)", (cod_detectado, cod_detectado.upper()))
+        ejecutar_sql("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)", (cod_detectado, cod_detectado.upper()))
 
-    tot = 0
-    for i in range(3):
+    # Sincronizar fecha solicitada y días adyacentes
+    tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
+    for i in [1, 2]:
         fec = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
         c, _ = descargar_partidos_fecha(cod_detectado, fec)
         tot += c
 
-    return jsonify({"success": True, "msg": f"Liga {cod_detectado} activada y {tot} partidos sincronizados."})
+    return jsonify({"success": True, "msg": f"Liga '{cod_detectado}' sincronizada con éxito ({tot} partidos guardados)."})
 
 @app.route('/api/calcular', methods=['POST'])
 def api_calcular():
