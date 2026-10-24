@@ -58,11 +58,12 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 21 LIGAS OFICIALES SIN DUPLICADOS
+# 22 LIGAS CONSOLIDADAS CON LEAGUE ONE (ENG.3)
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
     ("eng.1", "Premier League", "Inglaterra"),
+    ("eng.3", "League One Inglaterra", "Inglaterra"),
     ("ita.1", "Serie A Italia", "Italia"),
     ("ger.1", "Bundesliga", "Alemania"),
     ("fra.1", "Ligue 1", "Francia"),
@@ -73,7 +74,6 @@ LIGAS_INICIALES = [
     ("uefa.champions", "UEFA Champions League", "Europa"),
     ("uefa.europa", "UEFA Europa League", "Europa"),
     ("uefa.europa.conf", "UEFA Conference League", "Europa"),
-    ("eng.3", "League One Inglaterra", "Inglaterra"),
     ("mex.1", "Liga MX México", "México"),
     ("usa.1", "Major League Soccer (MLS)", "Estados Unidos"),
     ("ned.1", "Eredivisie Países Bajos", "Países Bajos"),
@@ -85,19 +85,19 @@ LIGAS_INICIALES = [
 ]
 
 # ==============================================================================
-# CONEXIÓN A BASE DE DATOS (SUPABASE DIRECTO / FALLBACK SQLITE)
+# CONEXIÓN A BASE DE DATOS ROBUSTA (SUPABASE DIRECTO)
 # ==============================================================================
 def get_db_connection():
     env_url = os.environ.get("DATABASE_URL")
     if env_url and PG_DISPONIBLE:
         try:
             url = env_url.replace("postgres://", "postgresql://", 1)
-            return psycopg2.connect(url, sslmode='require', connect_timeout=8)
+            return psycopg2.connect(url, sslmode='require', connect_timeout=10)
         except Exception as e:
-            print(f"Fallo conectando por DATABASE_URL: {e}")
+            print(f"Aviso DATABASE_URL: {e}")
 
     if PG_DISPONIBLE:
-        for port in [5432, 6543]:
+        for port in [6543, 5432]:
             try:
                 return psycopg2.connect(
                     host="aws-0-us-west-1.pooler.supabase.com",
@@ -106,7 +106,7 @@ def get_db_connection():
                     user="postgres.waldnnzetbbmbsyokzxp",
                     password="CHIqui18..%",
                     sslmode="require",
-                    connect_timeout=6
+                    connect_timeout=10
                 )
             except Exception:
                 pass
@@ -226,12 +226,6 @@ def inicializar_bd():
             );
         """)
         cur = conn.cursor()
-        try:
-            cur.execute("ALTER TABLE competiciones ADD COLUMN pais TEXT")
-            conn.commit()
-        except Exception:
-            pass
-
         for lid, lnom, lpais in LIGAS_INICIALES:
             try:
                 cur.execute("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, ?, 1)", (lid, lnom, lpais))
@@ -388,7 +382,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         return 0, str(e)
 
 # ==============================================================================
-# MOTOR POISSON & AUDITORÍA CORREGIDO
+# MOTOR POISSON & AUDITORÍA ESTADÍSTICA
 # ==============================================================================
 def poisson_prob(lmbda, k):
     if lmbda <= 0:
@@ -397,7 +391,7 @@ def poisson_prob(lmbda, k):
 
 def auditar_partido_flexible(competicion_id, local, visitante):
     def obtener_stats_reales(club, es_local):
-        # SOLO CONSULTAR PARTIDOS FINALIZADOS PARA NO PROMEDIAR CEROS DE ENCUENTROS PROGRAMADOS
+        # FILTRO ESTRICTO: SOLO PARTIDOS FINALIZADOS
         if es_local:
             filas = ejecutar_sql("""
                 SELECT goles_local, corners_local, tarjetas_local, offsides_local 
@@ -432,7 +426,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
             avg_offsides = sum(f.get("offsides_local" if es_local else "offsides_visitante", f.get("o", 0)) for f in filas) / n
             return n, float(avg_goles), float(avg_corners), float(avg_tarjetas), float(avg_offsides)
         
-        # PROMEDIOS POR DEFECTO REALISTAS CUANDO AÚN NO HAY HISTORIAL DEL CLUB EN LA BD
+        # PROMEDIOS POR DEFECTO PARA CLUBES NUEVOS EN BD
         return 0, (1.35 if es_local else 1.10), 4.8, 2.2, 1.8
 
     n_l, l_loc, crn_l, tar_l, off_l = obtener_stats_reales(local, True)
@@ -484,7 +478,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
     p_n1 = max(p_loc_2plus, p_crn_o85)
     tipo_mercado = "goles_loc" if p_loc_2plus >= p_crn_o85 else "corners"
 
-    # CONTROL ESTRICTO DE CUOTA JUSTA PARA EVITAR NÚMEROS ASTRONÓMICOS
+    # LÍMITE DE CUOTA JUSTA
     cuota_n1_calc = (100.0 / p_n1) if p_n1 >= 6.7 else 15.00
     nivel_1 = {
         "tipo": tipo_mercado,
@@ -573,19 +567,18 @@ def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
     ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
-    # 1. BARRIDO RÁPIDO Y EFECTIVO: Ayer, Hoy, Mañana y los próximos 3 días
+    # BARRIDO INTEGRAL: 15 DÍAS HACIA ATRÁS (HISTORIAL) Y 4 DÍAS HACIA ADELANTE (PROGRAMADOS)
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
         
-        # 5 días inmediatos: asegura que ningún partido del fin de semana se quede afuera por timeout
-        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 4)]
+        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-15, 5)]
         
         for cod in codigos_a_escanear:
             for f_str in fechas_consulta:
                 descargar_partidos_fecha(cod, f_str)
 
-    # 2. MOSTRAR EN PANTALLA PARTIDOS DESDE AYER EN ADELANTE
+    # MOSTRAR EN PANTALLA PARTIDOS DESDE AYER EN ADELANTE
     ayer_ecuador_str = (ahora_ecuador - timedelta(days=1)).strftime("%Y-%m-%d")
     partidos_bd = ejecutar_sql("""
         SELECT p.*, c.nombre as competicion_nombre 
@@ -686,12 +679,13 @@ def api_agregar_enlace():
         ejecutar_sql("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)", (cod_detectado, cod_detectado.upper()))
 
     tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
-    for i in [1, 2, 3, 4, 5]:
+    # CARGA RETROSPECTIVA DE 15 DÍAS PARA LA LIGA AGREGADA
+    for i in range(1, 16):
         fec = (ahora_ecu - timedelta(days=i)).strftime("%Y%m%d")
         c, _ = descargar_partidos_fecha(cod_detectado, fec)
         tot += c
 
-    return jsonify({"success": True, "msg": f"Liga '{cod_detectado}' sincronizada ({tot} partidos guardados)."})
+    return jsonify({"success": True, "msg": f"Liga '{cod_detectado}' sincronizada ({tot} partidos guardados con historial de 15 días)."})
 
 @app.route('/api/calcular', methods=['POST'])
 def api_calcular():
