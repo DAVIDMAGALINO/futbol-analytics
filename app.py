@@ -59,6 +59,7 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
+# 23 COMPETICIONES OFICIALES
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -90,7 +91,6 @@ LIGAS_INICIALES = [
 # ==============================================================================
 def get_db_connection():
     if PG_DISPONIBLE:
-        # Intentar conectar con la URI de entorno si existe
         env_url = os.environ.get("DATABASE_URL")
         if env_url:
             try:
@@ -99,7 +99,6 @@ def get_db_connection():
             except Exception as e:
                 print(f"[DB] Error conectando con DATABASE_URL: {e}")
 
-        # Intentar conectar directamente por credenciales de Supabase
         for host in ["aws-0-us-west-1.pooler.supabase.com", "aws-1-us-west-2.pooler.supabase.com"]:
             for port in [5432, 6543]:
                 try:
@@ -115,7 +114,6 @@ def get_db_connection():
                 except Exception:
                     pass
 
-    # Respaldo seguro SQLite
     return sqlite3.connect(DB_NAME)
 
 def ejecutar_sql(query, params=(), fetch=None):
@@ -294,11 +292,11 @@ def formatear_fecha_hora_ecuador(valor_fecha):
     return s_raw[:10], "Por definir"
 
 # ==============================================================================
-# DESCARGA DE DATOS REALES ESPN (CÓRNERS, TARJETAS, OFFSIDES)
+# DESCARGA DE DATOS REALES ESPN
 # ==============================================================================
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HTTP_HEADERS)
-    with urllib.request.urlopen(req, timeout=12) as resp:
+    with urllib.request.urlopen(req, timeout=8) as resp:
         return resp.read().decode('utf-8', errors='ignore')
 
 def get_json(url):
@@ -548,7 +546,7 @@ def api_alarmas_hoy():
         if forzar:
             ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
             codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
-            fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-15, 5)]
+            fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-5, 4)]
             
             for cod in codigos_a_escanear:
                 for f_str in fechas_consulta:
@@ -606,51 +604,57 @@ def api_alarmas_hoy():
 
 @app.route('/api/agregar_enlace', methods=['POST'])
 def api_agregar_enlace():
-    data = request.json or {}
-    url = data.get('url', '').strip().lower()
-    ahora_ecu = datetime.now(timezone.utc) - timedelta(hours=5)
-    fecha_req = data.get('fecha') or ahora_ecu.strftime("%Y%m%d")
+    try:
+        data = request.json or {}
+        url = data.get('url', '').strip().lower()
+        ahora_ecu = datetime.now(timezone.utc) - timedelta(hours=5)
+        fecha_req = data.get('fecha') or ahora_ecu.strftime("%Y%m%d")
 
-    if not url:
-        return jsonify({"success": False, "msg": "Enlace o código vacío."})
-    
-    cod_detectado = None
-    for k, v in DICCIONARIO_LIGAS.items():
-        if k in url:
-            cod_detectado = v
-            break
-            
-    if not cod_detectado and "espn" in url:
-        m = re.search(r'(?:liga|league)/([a-zA-Z0-9\._]+)', url)
-        if m:
-            cod_detectado = m.group(1).lower()
+        if not url:
+            return jsonify({"success": False, "msg": "Enlace o código vacío."})
+        
+        cod_detectado = None
+        for k, v in DICCIONARIO_LIGAS.items():
+            if k in url:
+                cod_detectado = v
+                break
+                
+        if not cod_detectado and "espn" in url:
+            m = re.search(r'(?:liga|league)/([a-zA-Z0-9\._]+)', url)
+            if m:
+                cod_detectado = m.group(1).lower()
 
-    if not cod_detectado and re.match(r'^[a-z0-9_\.]+$', url):
-        cod_detectado = url
+        if not cod_detectado and re.match(r'^[a-z0-9_\.]+$', url):
+            cod_detectado = url
 
-    if not cod_detectado:
-        return jsonify({"success": False, "msg": "No se reconoció la liga."})
+        if not cod_detectado:
+            return jsonify({"success": False, "msg": "No se reconoció la liga."})
 
-    conn = get_db_connection()
-    is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
-    if conn:
-        conn.close()
-
-    if is_pg:
+        # Registrar competición en BD
         ejecutar_sql("""
             INSERT INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)
             ON CONFLICT (id) DO UPDATE SET activa = 1
         """, (cod_detectado, cod_detectado.upper()))
-    else:
-        ejecutar_sql("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)", (cod_detectado, cod_detectado.upper()))
 
-    tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
-    for i in range(1, 16):
-        fec = (ahora_ecu - timedelta(days=i)).strftime("%Y%m%d")
-        c, _ = descargar_partidos_fecha(cod_detectado, fec)
-        tot += c
+        # Descarga optimizada: día solicitado + 4 días previos para no exceder timeout
+        tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
+        
+        try:
+            fecha_dt = datetime.strptime(fecha_req, "%Y%m%d")
+            for i in range(1, 5):
+                fec = (fecha_dt - timedelta(days=i)).strftime("%Y%m%d")
+                c, _ = descargar_partidos_fecha(cod_detectado, fec)
+                tot += c
+        except Exception:
+            pass
 
-    return jsonify({"success": True, "msg": f"Liga '{cod_detectado}' sincronizada ({tot} partidos guardados con historial de 15 días)."})
+        return jsonify({
+            "success": True, 
+            "msg": f"Liga '{cod_detectado}' sincronizada con éxito: {tot} partidos registrados con sus estadísticas."
+        })
+    except Exception as e:
+        print(f"[ERROR AGREGAR ENLACE] {e}")
+        return jsonify({"success": False, "msg": f"Error procesando la liga: {str(e)}"})
 
 @app.route('/api/calcular', methods=['POST'])
 def api_calcular():
