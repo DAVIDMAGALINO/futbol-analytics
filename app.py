@@ -5,7 +5,6 @@ import json
 import urllib.request
 import urllib.error
 import re
-import time
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, request, jsonify
 
@@ -85,17 +84,8 @@ LIGAS_INICIALES = [
     ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica")
 ]
 
-# Blindaje contra respuestas HTML en rutas API para evitar errores de sintaxis JSON
-@app.errorhandler(Exception)
-def handle_exception(e):
-    if request.path.startswith('/api/'):
-        print(f"[API ERROR CAPTURADO] {e}")
-        return jsonify({"success": False, "alarmas": [], "error": str(e)}), 200
-    return "Error interno del servidor", 500
-
 def get_db_connection():
     if PG_DISPONIBLE:
-        # 1. Intentar variable de entorno si existe
         env_url = os.environ.get("DATABASE_URL")
         if env_url:
             try:
@@ -104,23 +94,10 @@ def get_db_connection():
             except Exception as e:
                 print(f"[DB] Error DATABASE_URL: {e}")
 
-        # 2. Conexión directa a Supabase
+        # Intento de conexión al pooler de Supabase
         uri_supabase = "postgresql://postgres.waldnnzetbbmbsyokzxp:CHIqui18..%25@aws-0-us-west-1.pooler.supabase.com:6543/postgres"
         try:
             return psycopg2.connect(uri_supabase, sslmode='require', connect_timeout=5)
-        except Exception:
-            pass
-
-        try:
-            return psycopg2.connect(
-                host="aws-0-us-west-1.pooler.supabase.com",
-                port=5432,
-                dbname="postgres",
-                user="postgres.waldnnzetbbmbsyokzxp",
-                password="CHIqui18..%",
-                sslmode="require",
-                connect_timeout=5
-            )
         except Exception:
             pass
 
@@ -543,38 +520,13 @@ def api_alarmas_hoy():
                 for f_str in fechas_consulta:
                     descargar_partidos_fecha(cod, f_str)
 
-        conn = get_db_connection()
-        is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
-        if conn:
-            conn.close()
-
-        ayer_dt = ahora_ecuador - timedelta(days=1)
-        fecha_filtro = ayer_dt.strftime("%Y-%m-%d")
-
-        if is_pg:
-            partidos_bd = ejecutar_sql("""
-                SELECT p.*, c.nombre as competicion_nombre 
-                FROM partidos p
-                LEFT JOIN competiciones c ON p.competicion_id = c.id
-                WHERE p.fecha >= CAST(? AS timestamptz)
-                ORDER BY p.fecha ASC
-            """, (fecha_filtro,), fetch="all") or []
-        else:
-            partidos_bd = ejecutar_sql("""
-                SELECT p.*, c.nombre as competicion_nombre 
-                FROM partidos p
-                LEFT JOIN competiciones c ON p.competicion_id = c.id
-                WHERE p.fecha >= ?
-                ORDER BY p.fecha ASC
-            """, (fecha_filtro,), fetch="all") or []
-
-        if not partidos_bd:
-            partidos_bd = ejecutar_sql("""
-                SELECT p.*, c.nombre as competicion_nombre 
-                FROM partidos p
-                LEFT JOIN competiciones c ON p.competicion_id = c.id
-                ORDER BY p.fecha DESC LIMIT 200
-            """, fetch="all") or []
+        # Consulta universal sin conversión de fecha compleja para evitar errores SQL
+        partidos_bd = ejecutar_sql("""
+            SELECT p.*, c.nombre as competicion_nombre 
+            FROM partidos p
+            LEFT JOIN competiciones c ON p.competicion_id = c.id
+            ORDER BY p.fecha DESC LIMIT 200
+        """, fetch="all") or []
 
         alarmas = []
         for p in partidos_bd:
