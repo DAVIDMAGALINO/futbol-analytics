@@ -59,7 +59,6 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 23 COMPETICIONES OFICIALES
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -86,9 +85,14 @@ LIGAS_INICIALES = [
     ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica")
 ]
 
-# ==============================================================================
-# CONEXIÓN BLINDADA CON SUPABASE Y SQLITE
-# ==============================================================================
+# Blindaje contra respuestas HTML en rutas API
+@app.errorhandler(Exception)
+def handle_exception(e):
+    if request.path.startswith('/api/'):
+        print(f"[API ERROR CAPTURADO] {e}")
+        return jsonify({"success": False, "alarmas": [], "error": str(e)}), 200
+    return "Error interno del servidor", 500
+
 def get_db_connection():
     if PG_DISPONIBLE:
         env_url = os.environ.get("DATABASE_URL")
@@ -97,7 +101,7 @@ def get_db_connection():
                 url_limpia = env_url.replace("postgres://", "postgresql://", 1)
                 return psycopg2.connect(url_limpia, sslmode='require', connect_timeout=5)
             except Exception as e:
-                print(f"[DB] Error conectando con DATABASE_URL: {e}")
+                print(f"[DB] Error DATABASE_URL: {e}")
 
         for host in ["aws-0-us-west-1.pooler.supabase.com", "aws-1-us-west-2.pooler.supabase.com"]:
             for port in [5432, 6543]:
@@ -242,7 +246,7 @@ def inicializar_bd():
                     pass
             conn.commit()
     except Exception as e:
-        print(f"[INIT BD WARNING] {e}")
+        print(f"[INIT WARNING] {e}")
     finally:
         if conn:
             try:
@@ -252,9 +256,6 @@ def inicializar_bd():
 
 inicializar_bd()
 
-# ==============================================================================
-# HORA ECUADOR (UTC-5)
-# ==============================================================================
 def formatear_fecha_hora_ecuador(valor_fecha):
     if not valor_fecha:
         return datetime.now().strftime("%Y-%m-%d"), "Por definir"
@@ -262,23 +263,18 @@ def formatear_fecha_hora_ecuador(valor_fecha):
         dt = None
         if isinstance(valor_fecha, datetime):
             if valor_fecha.tzinfo is not None:
-                dt_utc = valor_fecha.astimezone(timezone.utc)
-                dt = dt_utc - timedelta(hours=5)
+                dt = valor_fecha.astimezone(timezone.utc) - timedelta(hours=5)
             else:
                 dt = valor_fecha - timedelta(hours=5)
         else:
             s = str(valor_fecha).strip()
             if "T00:00" in s or " 00:00:00" in s:
-                fecha_base = s.split("T")[0].split(" ")[0]
-                return fecha_base, "Por definir"
+                return s.split("T")[0].split(" ")[0], "Por definir"
 
             s_iso = s.replace("Z", "+00:00")
             if "+" in s_iso or ("-" in s_iso[10:]):
                 dt_obj = datetime.fromisoformat(s_iso)
-                if dt_obj.tzinfo is not None:
-                    dt = dt_obj.astimezone(timezone.utc) - timedelta(hours=5)
-                else:
-                    dt = dt_obj - timedelta(hours=5)
+                dt = dt_obj.astimezone(timezone.utc) - timedelta(hours=5) if dt_obj.tzinfo else dt_obj - timedelta(hours=5)
             else:
                 dt_obj = datetime.fromisoformat(s)
                 dt = dt_obj - timedelta(hours=5)
@@ -291,9 +287,6 @@ def formatear_fecha_hora_ecuador(valor_fecha):
     s_raw = str(valor_fecha)
     return s_raw[:10], "Por definir"
 
-# ==============================================================================
-# DESCARGA DE DATOS REALES ESPN
-# ==============================================================================
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HTTP_HEADERS)
     with urllib.request.urlopen(req, timeout=8) as resp:
@@ -334,7 +327,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         data = get_json(url)
         events = data.get("events", [])
         if not events:
-            return 0, f"No hay eventos para {codigo_liga} en {fecha_str}."
+            return 0, f"No hay eventos"
             
         total_guardados = 0
         conn = get_db_connection()
@@ -394,9 +387,6 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
     except Exception as e:
         return 0, str(e)
 
-# ==============================================================================
-# AUDITORÍA DE CANCHA: ÚLTIMO PARTIDO INDIVIDUAL + PROMEDIO 5 ENCUENTROS
-# ==============================================================================
 def auditar_partido_flexible(competicion_id, local, visitante):
     def obtener_radiografia_club(club):
         c_upper = str(club).strip().upper()
@@ -410,7 +400,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
             FROM partidos 
             WHERE (UPPER(local) = ? OR UPPER(visitante) = ?) AND estado = 'finalizado'
             ORDER BY fecha DESC LIMIT 5
-        """, (c_upper, c_upper), fetch="all")
+        """, (c_upper, c_upper), fetch="all") or []
 
         if not filas:
             return None
@@ -449,8 +439,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
     try:
         rad_l = obtener_radiografia_club(local)
         rad_v = obtener_radiografia_club(visitante)
-    except Exception as ex:
-        print(f"[RAD ERROR] {ex}")
+    except Exception:
         rad_l, rad_v = None, None
 
     if not rad_l or not rad_v:
@@ -511,9 +500,6 @@ def auditar_partido_flexible(competicion_id, local, visitante):
         "rad_v": rad_v
     }
 
-# ==============================================================================
-# RUTAS DE SERVICIO WEB & APIS
-# ==============================================================================
 @app.route('/')
 def home():
     ligas = ejecutar_sql("SELECT id, nombre, pais FROM competiciones WHERE activa = 1 ORDER BY nombre", fetch="all") or []
@@ -545,21 +531,35 @@ def api_alarmas_hoy():
 
         if forzar:
             ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
-            codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
+            codigos = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
             fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-5, 4)]
-            
-            for cod in codigos_a_escanear:
+            for cod in codigos:
                 for f_str in fechas_consulta:
                     descargar_partidos_fecha(cod, f_str)
 
-        ayer_ecuador_str = (ahora_ecuador - timedelta(days=1)).strftime("%Y-%m-%d")
-        partidos_bd = ejecutar_sql("""
-            SELECT p.*, c.nombre as competicion_nombre 
-            FROM partidos p
-            LEFT JOIN competiciones c ON p.competicion_id = c.id
-            WHERE p.fecha >= ?
-            ORDER BY p.fecha ASC
-        """, (ayer_ecuador_str,), fetch="all") or []
+        # Consulta segura de partidos: evita error de casteo de fechas en Supabase
+        conn = get_db_connection()
+        is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
+        if conn:
+            conn.close()
+
+        ayer_dt = ahora_ecuador - timedelta(days=1)
+        if is_pg:
+            partidos_bd = ejecutar_sql("""
+                SELECT p.*, c.nombre as competicion_nombre 
+                FROM partidos p
+                LEFT JOIN competiciones c ON p.competicion_id = c.id
+                WHERE p.fecha >= %s::timestamptz
+                ORDER BY p.fecha ASC
+            """, (ayer_dt.strftime("%Y-%m-%d 00:00:00+00"),), fetch="all") or []
+        else:
+            partidos_bd = ejecutar_sql("""
+                SELECT p.*, c.nombre as competicion_nombre 
+                FROM partidos p
+                LEFT JOIN competiciones c ON p.competicion_id = c.id
+                WHERE p.fecha >= ?
+                ORDER BY p.fecha ASC
+            """, (ayer_dt.strftime("%Y-%m-%d"),), fetch="all") or []
 
         if not partidos_bd:
             partidos_bd = ejecutar_sql("""
@@ -586,20 +586,20 @@ def api_alarmas_hoy():
                 "visitante": vis,
                 "estado": p.get("estado", "programado"),
                 "marcador": f"{p.get('goles_local', 0)} - {p.get('goles_visitante', 0)}" if p.get("estado") == "finalizado" else None,
-                "confianza": res["indice_confianza"],
-                "alerta_riesgo": res["alerta_riesgo"],
-                "mercado_recomendado": res["mercado"],
-                "probabilidad": res["probabilidad"],
-                "cuota_justa": res["cuota_justa"],
-                "stake": res["stake"],
-                "hay_datos": res["hay_datos"],
-                "rad_l": res["rad_l"],
-                "rad_v": res["rad_v"]
+                "confianza": res.get("indice_confianza", 4),
+                "alerta_riesgo": res.get("alerta_riesgo", ""),
+                "mercado_recomendado": res.get("mercado", ""),
+                "probabilidad": res.get("probabilidad", 0),
+                "cuota_justa": res.get("cuota_justa", 1.0),
+                "stake": res.get("stake", ""),
+                "hay_datos": res.get("hay_datos", False),
+                "rad_l": res.get("rad_l"),
+                "rad_v": res.get("rad_v")
             })
 
         return jsonify({"success": True, "alarmas": alarmas})
-    except Exception as general_err:
-        print(f"[ALARMAS ERROR] {general_err}")
+    except Exception as e:
+        print(f"[ALARMAS ERROR RETORNO SEGURO] {e}")
         return jsonify({"success": True, "alarmas": []})
 
 @app.route('/api/agregar_enlace', methods=['POST'])
@@ -630,18 +630,16 @@ def api_agregar_enlace():
         if not cod_detectado:
             return jsonify({"success": False, "msg": "No se reconoció la liga."})
 
-        # Registrar competición en BD
         ejecutar_sql("""
             INSERT INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)
             ON CONFLICT (id) DO UPDATE SET activa = 1
         """, (cod_detectado, cod_detectado.upper()))
 
-        # Descarga optimizada: día solicitado + 4 días previos para no exceder timeout
         tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
         
         try:
             fecha_dt = datetime.strptime(fecha_req, "%Y%m%d")
-            for i in range(1, 5):
+            for i in range(1, 4):
                 fec = (fecha_dt - timedelta(days=i)).strftime("%Y%m%d")
                 c, _ = descargar_partidos_fecha(cod_detectado, fec)
                 tot += c
@@ -654,7 +652,7 @@ def api_agregar_enlace():
         })
     except Exception as e:
         print(f"[ERROR AGREGAR ENLACE] {e}")
-        return jsonify({"success": False, "msg": f"Error procesando la liga: {str(e)}"})
+        return jsonify({"success": False, "msg": f"Error: {str(e)}"})
 
 @app.route('/api/calcular', methods=['POST'])
 def api_calcular():
