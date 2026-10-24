@@ -37,6 +37,8 @@ DICCIONARIO_LIGAS = {
     "colombia": "col.1", "betplay": "col.1", "col.1": "col.1",
     "espana": "esp.1", "españa": "esp.1", "laliga": "esp.1", "esp.1": "esp.1",
     "inglaterra": "eng.1", "premier": "eng.1", "premier league": "eng.1", "eng.1": "eng.1",
+    "championship": "eng.2", "eng.2": "eng.2", "efl championship": "eng.2",
+    "league one": "eng.3", "eng.3": "eng.3",
     "italia": "ita.1", "serie a": "ita.1", "calcio": "ita.1", "ita.1": "ita.1",
     "alemania": "ger.1", "bundesliga": "ger.1", "ger.1": "ger.1",
     "francia": "fra.1", "ligue 1": "fra.1", "fra.1": "fra.1",
@@ -53,38 +55,40 @@ DICCIONARIO_LIGAS = {
     "champions": "uefa.champions", "champions league": "uefa.champions", "uefa.champions": "uefa.champions",
     "europa league": "uefa.europa", "uefa.europa": "uefa.europa",
     "conference": "uefa.europa.conf", "conference league": "uefa.europa.conf", "uefa.europa.conf": "uefa.europa.conf",
-    "league one": "eng.3", "eng.3": "eng.3",
-    "championship": "eng.2", "eng.2": "eng.2", "efl championship": "eng.2",
     "libertadores": "conmebol.libertadores", "conmebol.libertadores": "conmebol.libertadores",
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
+# 23 COMPETICIONES OFICIALES
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
     ("eng.1", "Premier League", "Inglaterra"),
+    ("eng.2", "EFL Championship", "Inglaterra"),
     ("eng.3", "League One Inglaterra", "Inglaterra"),
     ("ita.1", "Serie A Italia", "Italia"),
     ("ger.1", "Bundesliga", "Alemania"),
     ("fra.1", "Ligue 1", "Francia"),
     ("col.1", "Liga BetPlay", "Colombia"),
     ("arg.1", "Liga Profesional", "Argentina"),
-    ("conmebol.libertadores", "Copa Libertadores", "Sudamérica"),
-    ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica"),
+    ("bra.1", "Brasileirao Serie A", "Brasil"),
+    ("mex.1", "Liga MX México", "México"),
+    ("usa.1", "Major League Soccer (MLS)", "Estados Unidos"),
+    ("por.1", "Primeira Liga Portugal", "Portugal"),
+    ("ned.1", "Eredivisie Países Bajos", "Países Bajos"),
+    ("per.1", "Liga 1 Perú", "Perú"),
+    ("bol.1", "División Profesional Bolivia", "Bolivia"),
+    ("aus.1", "A-League Australia", "Australia"),
     ("uefa.champions", "UEFA Champions League", "Europa"),
     ("uefa.europa", "UEFA Europa League", "Europa"),
     ("uefa.europa.conf", "UEFA Conference League", "Europa"),
-    ("mex.1", "Liga MX México", "México"),
-    ("usa.1", "Major League Soccer (MLS)", "Estados Unidos"),
-    ("ned.1", "Eredivisie Países Bajos", "Países Bajos"),
-    ("por.1", "Primeira Liga Portugal", "Portugal"),
-    ("bol.1", "División Profesional Bolivia", "Bolivia"),
-    ("per.1", "Liga 1 Perú", "Perú"),
-    ("aus.1", "A-League Australia", "Australia"),
-    ("eng.2", "EFL Championship", "Inglaterra"),
-    ("bra.1", "Brasileirao Serie A", "Brasil")
+    ("conmebol.libertadores", "Copa Libertadores", "Sudamérica"),
+    ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica")
 ]
 
+# ==============================================================================
+# CONEXIÓN A BASE DE DATOS SUPABASE DIRECTO
+# ==============================================================================
 def get_db_connection():
     env_url = os.environ.get("DATABASE_URL")
     if env_url and PG_DISPONIBLE:
@@ -235,8 +239,11 @@ def inicializar_bd():
 try:
     inicializar_bd()
 except Exception as e:
-    print(f"Aviso inicializar_bd: {e}")
+    print(f"Aviso durante inicializar_bd: {e}")
 
+# ==============================================================================
+# HORA ECUADOR (UTC-5)
+# ==============================================================================
 def formatear_fecha_hora_ecuador(valor_fecha):
     if not valor_fecha:
         return datetime.now().strftime("%Y-%m-%d"), "Por definir"
@@ -273,6 +280,9 @@ def formatear_fecha_hora_ecuador(valor_fecha):
     s_raw = str(valor_fecha)
     return s_raw[:10], "Por definir"
 
+# ==============================================================================
+# DESCARGA DE DATOS REALES ESPN (CÓRNERS, TARJETAS, OFFSIDES)
+# ==============================================================================
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HTTP_HEADERS)
     with urllib.request.urlopen(req, timeout=12) as resp:
@@ -373,60 +383,70 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         return 0, str(e)
 
 # ==============================================================================
-# AUDITORÍA DE CANCHA: ÚLTIMO PARTIDO + PROMEDIO 5 ENCUENTROS
+# AUDITORÍA DE CANCHA: ÚLTIMO PARTIDO INDIVIDUAL + PROMEDIO 5 ENCUENTROS
 # ==============================================================================
 def auditar_partido_flexible(competicion_id, local, visitante):
     def obtener_radiografia_club(club):
+        c_upper = club.strip().upper()
+        # Consulta limpia que funciona en Supabase (PostgreSQL) y SQLite
         filas = ejecutar_sql("""
             SELECT 
                 fecha, local, visitante,
-                CASE WHEN UPPER(local) = ? THEN goles_local ELSE goles_visitante END AS gf,
-                CASE WHEN UPPER(local) = ? THEN goles_visitante ELSE goles_local END AS gc,
-                CASE WHEN UPPER(local) = ? THEN corners_local ELSE corners_visitante END AS c,
-                CASE WHEN UPPER(local) = ? THEN tarjetas_local ELSE tarjetas_visitante END AS t,
-                CASE WHEN UPPER(local) = ? THEN offsides_local ELSE offsides_visitante END AS o,
-                CASE WHEN UPPER(local) = ? THEN visitante ELSE local END AS rival,
-                CASE WHEN UPPER(local) = ? THEN (goles_local || ' - ' || goles_visitante) 
-                     ELSE (goles_visitante || ' - ' || goles_local) END AS marcador_perspectiva
+                goles_local, goles_visitante,
+                corners_local, corners_visitante,
+                tarjetas_local, tarjetas_visitante,
+                offsides_local, offsides_visitante
             FROM partidos 
             WHERE (UPPER(local) = ? OR UPPER(visitante) = ?) AND estado = 'finalizado'
             ORDER BY fecha DESC LIMIT 5
-        """, (club.upper(), club.upper(), club.upper(), club.upper(), club.upper(),
-              club.upper(), club.upper(), club.upper(), club.upper()), fetch="all")
+        """, (c_upper, c_upper), fetch="all")
 
         if not filas:
             return None
 
-        ult = filas[0]
-        datos_ultimo = {
-            "rival": ult.get("rival", "Rival"),
-            "marcador": ult.get("marcador_perspectiva", "0 - 0"),
-            "gf": int(ult.get("gf") or 0),
-            "gc": int(ult.get("gc") or 0),
-            "c": int(ult.get("c") or 0),
-            "t": int(ult.get("t") or 0),
-            "o": int(ult.get("o") or 0)
-        }
+        partidos_procesados = []
+        for f in filas:
+            es_local = (str(f.get("local", "")).strip().upper() == c_upper)
+            gf = int(f.get("goles_local" if es_local else "goles_visitante") or 0)
+            gc = int(f.get("goles_visitante" if es_local else "goles_local") or 0)
+            c = int(f.get("corners_local" if es_local else "corners_visitante") or 0)
+            t = int(f.get("tarjetas_local" if es_local else "tarjetas_visitante") or 0)
+            o = int(f.get("offsides_local" if es_local else "offsides_visitante") or 0)
+            rival = str(f.get("visitante" if es_local else "local", "Rival")).strip()
+            marcador = f"{gf} - {gc}"
 
-        n = len(filas)
+            partidos_procesados.append({
+                "rival": rival,
+                "marcador": marcador,
+                "gf": gf, "gc": gc,
+                "c": c, "t": t, "o": o
+            })
+
+        ult = partidos_procesados[0]
+        n = len(partidos_procesados)
+
         promedios_5 = {
             "pj": n,
-            "gf": round(sum(f.get("gf", 0) for f in filas) / n, 1),
-            "c": round(sum(f.get("c", 0) for f in filas) / n, 1),
-            "t": round(sum(f.get("t", 0) for f in filas) / n, 1),
-            "o": round(sum(f.get("o", 0) for f in filas) / n, 1)
+            "gf": round(sum(p["gf"] for p in partidos_procesados) / n, 1),
+            "c": round(sum(p["c"] for p in partidos_procesados) / n, 1),
+            "t": round(sum(p["t"] for p in partidos_procesados) / n, 1),
+            "o": round(sum(p["o"] for p in partidos_procesados) / n, 1)
         }
 
-        return {"ultimo": datos_ultimo, "promedio": promedios_5}
+        return {"ultimo": ult, "promedio": promedios_5}
 
-    rad_l = obtener_radiografia_club(local)
-    rad_v = obtener_radiografia_club(visitante)
+    try:
+        rad_l = obtener_radiografia_club(local)
+        rad_v = obtener_radiografia_club(visitante)
+    except Exception as ex:
+        print(f"Error procesando radiografia: {ex}")
+        rad_l, rad_v = None, None
 
     if not rad_l or not rad_v:
         return {
             "hay_datos": False,
             "indice_confianza": 4,
-            "alerta_riesgo": "Esperando historial de partidos jugados en la base de datos.",
+            "alerta_riesgo": "Esperando historial de partidos finalizados en la base de datos.",
             "mercado": "En recopilación",
             "probabilidad": 0,
             "cuota_justa": 1.00,
@@ -481,7 +501,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
     }
 
 # ==============================================================================
-# RUTAS DE SERVICIO WEB
+# RUTAS DE SERVICIO WEB & APIS
 # ==============================================================================
 @app.route('/')
 def home():
