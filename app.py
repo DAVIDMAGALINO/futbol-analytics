@@ -260,7 +260,6 @@ def formatear_fecha_hora_ecuador(valor_fecha):
                 dt = valor_fecha - timedelta(hours=5)
         else:
             s = str(valor_fecha).strip()
-            # Si ESPN no tiene horario programado suele enviar T00:00Z
             if "T00:00" in s or " 00:00:00" in s:
                 fecha_base = s.split("T")[0].split(" ")[0]
                 return fecha_base, "Por definir"
@@ -348,7 +347,6 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             
             st = descargar_resumen_evento(codigo_liga, fix_id)
             
-            # Obtener fecha y hora real desde competition
             comp_info = ev.get("competitions", [{}])[0]
             fecha_iso = comp_info.get("date") or ev.get("date") or datetime.now().isoformat()
             estado = "finalizado" if ev.get("status", {}).get("type", {}).get("completed", False) else "programado"
@@ -522,7 +520,8 @@ def home():
     if not ligas:
         ligas = [{"id": l[0], "nombre": l[1], "pais": l[2]} for l in LIGAS_INICIALES]
         
-    fecha_hoy = datetime.now().strftime("%Y%m%d")
+    ahora_ecu = datetime.now(timezone.utc) - timedelta(hours=5)
+    fecha_hoy = ahora_ecu.strftime("%Y%m%d")
     return render_template('index.html', ligas=ligas, fecha_hoy=fecha_hoy)
 
 @app.route('/api/equipos/<liga>')
@@ -547,7 +546,7 @@ def api_partidos_guardados():
                p.offsides_local, p.offsides_visitante, p.estado
         FROM partidos p
         LEFT JOIN competiciones c ON p.competicion_id = c.id
-        ORDER BY p.fecha DESC LIMIT 100
+        ORDER BY p.fecha DESC LIMIT 150
     """, fetch="all") or []
     
     for r in filas:
@@ -559,39 +558,39 @@ def api_partidos_guardados():
 @app.route('/api/alarmas_hoy')
 def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
+    ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
-    # Escaneo ampliado: Hoy + Próximos 7 días
+    # 1. Sincronización completa: ayer, hoy y los próximos 5 días sin cortes
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
         codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
         
-        dias_a_escanear = [(datetime.now() + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 8)]
+        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 6)]
         
         for cod in codigos_a_escanear:
-            for fecha_f in dias_a_escanear:
-                descargar_partidos_fecha(cod, fecha_f)
+            for f_str in fechas_consulta:
+                descargar_partidos_fecha(cod, f_str)
 
-    # Filtrar desde ayer en adelante para mostrar la cartelera actual y de la semana
-    ayer_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    partidos_futuros = ejecutar_sql("""
+    # 2. Consultar partidos a partir de ayer en Ecuador sin LIMIT artificial
+    ayer_ecuador_str = (ahora_ecuador - timedelta(days=1)).strftime("%Y-%m-%d")
+    partidos_bd = ejecutar_sql("""
         SELECT p.*, c.nombre as competicion_nombre 
         FROM partidos p
         LEFT JOIN competiciones c ON p.competicion_id = c.id
         WHERE p.fecha >= ?
-        ORDER BY p.fecha ASC LIMIT 300
-    """, (ayer_str,), fetch="all") or []
+        ORDER BY p.fecha ASC
+    """, (ayer_ecuador_str,), fetch="all") or []
 
-    # Si la BD no tuviera partidos futuros, usar los últimos disponibles
-    if not partidos_futuros:
-        partidos_futuros = ejecutar_sql("""
+    if not partidos_bd:
+        partidos_bd = ejecutar_sql("""
             SELECT p.*, c.nombre as competicion_nombre 
             FROM partidos p
             LEFT JOIN competiciones c ON p.competicion_id = c.id
-            ORDER BY p.fecha DESC LIMIT 100
+            ORDER BY p.fecha DESC LIMIT 200
         """, fetch="all") or []
 
     alarmas = []
-    for p in partidos_futuros:
+    for p in partidos_bd:
         loc = p["local"]
         vis = p["visitante"]
         res = auditar_partido_flexible(p["competicion_id"], loc, vis)
@@ -630,13 +629,15 @@ def api_alarmas_hoy():
                 "n_v": res["n_visitante_bd"]
             }
         })
+
     return jsonify({"success": True, "alarmas": alarmas})
 
 @app.route('/api/agregar_enlace', methods=['POST'])
 def api_agregar_enlace():
     data = request.json or {}
     url = data.get('url', '').strip().lower()
-    fecha_req = data.get('fecha') or datetime.now().strftime("%Y%m%d")
+    ahora_ecu = datetime.now(timezone.utc) - timedelta(hours=5)
+    fecha_req = data.get('fecha') or ahora_ecu.strftime("%Y%m%d")
 
     if not url:
         return jsonify({"success": False, "msg": "Enlace o código vacío."})
@@ -672,7 +673,7 @@ def api_agregar_enlace():
 
     tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
     for i in [1, 2]:
-        fec = (datetime.now() - timedelta(days=i)).strftime("%Y%m%d")
+        fec = (ahora_ecu - timedelta(days=i)).strftime("%Y%m%d")
         c, _ = descargar_partidos_fecha(cod_detectado, fec)
         tot += c
 
