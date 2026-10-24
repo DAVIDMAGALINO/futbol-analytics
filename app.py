@@ -147,7 +147,6 @@ def inicializar_bd():
         """)
         conn.commit()
     else:
-        # SQLite requiere ejecutar sentencias múltiples con executescript
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS competiciones (
                 id TEXT PRIMARY KEY,
@@ -177,6 +176,14 @@ def inicializar_bd():
                 updated_at TEXT
             );
         """)
+        # Parche de migración preventiva para SQLite local
+        cur = conn.cursor()
+        try:
+            cur.execute("ALTER TABLE competiciones ADD COLUMN pais TEXT")
+            conn.commit()
+        except Exception:
+            pass
+
     conn.close()
 
 inicializar_bd()
@@ -322,20 +329,20 @@ def auditar_partido_flexible(competicion_id, local, visitante):
 
         if not filas:
             filas = ejecutar_sql("""
-                SELECT CASE WHEN UPPER(local) = ? THEN goles_local ELSE goles_visitante END,
-                       CASE WHEN UPPER(local) = ? THEN corners_local ELSE corners_visitante END,
-                       CASE WHEN UPPER(local) = ? THEN tarjetas_local ELSE tarjetas_visitante END,
-                       CASE WHEN UPPER(local) = ? THEN offsides_local ELSE offsides_visitante END
+                SELECT CASE WHEN UPPER(local) = ? THEN goles_local ELSE goles_visitante END AS g,
+                       CASE WHEN UPPER(local) = ? THEN corners_local ELSE corners_visitante END AS c,
+                       CASE WHEN UPPER(local) = ? THEN tarjetas_local ELSE tarjetas_visitante END AS t,
+                       CASE WHEN UPPER(local) = ? THEN offsides_local ELSE offsides_visitante END AS o
                 FROM partidos WHERE competicion_id = ? AND (UPPER(local) = ? OR UPPER(visitante) = ?)
                 ORDER BY fecha DESC LIMIT 5
             """, (club.upper(), club.upper(), club.upper(), club.upper(), competicion_id, club.upper(), club.upper()), fetch="all")
 
         n = len(filas) if filas else 0
         if n > 0:
-            avg_goles = sum(f.get("goles_local" if es_local else "goles_visitante", 0) if "goles_local" in f else list(f.values())[0] for f in filas) / n
-            avg_corners = sum(f.get("corners_local" if es_local else "corners_visitante", 0) if "corners_local" in f else list(f.values())[1] for f in filas) / n
-            avg_tarjetas = sum(f.get("tarjetas_local" if es_local else "tarjetas_visitante", 0) if "tarjetas_local" in f else list(f.values())[2] for f in filas) / n
-            avg_offsides = sum(f.get("offsides_local" if es_local else "offsides_visitante", 0) if "offsides_local" in f else list(f.values())[3] for f in filas) / n
+            avg_goles = sum(f.get("goles_local" if es_local else "goles_visitante", f.get("g", 0)) for f in filas) / n
+            avg_corners = sum(f.get("corners_local" if es_local else "corners_visitante", f.get("c", 0)) for f in filas) / n
+            avg_tarjetas = sum(f.get("tarjetas_local" if es_local else "tarjetas_visitante", f.get("t", 0)) for f in filas) / n
+            avg_offsides = sum(f.get("offsides_local" if es_local else "offsides_visitante", f.get("o", 0)) for f in filas) / n
             return n, float(avg_goles), float(avg_corners), float(avg_tarjetas), float(avg_offsides)
         return 0, 0.0, 4.0, 2.0, 1.0
 
@@ -466,7 +473,7 @@ def api_auditoria_finalizados():
         
         gl = p.get("goles_local", 0)
         gv = p.get("goles_visitante", 0)
-        crn_tot = p.get("corners_local", 0) + p.get("corners_visitante", 0)
+        crn_tot = (p.get("corners_local") or 0) + (p.get("corners_visitante") or 0)
 
         acierto = False
         if tipo == "goles_loc":
@@ -482,7 +489,7 @@ def api_auditoria_finalizados():
             "visitante": p["visitante"],
             "marcador_final": f"{gl} - {gv}",
             "corners_totales": crn_tot,
-            "tarjetas_totales": p.get("tarjetas_local", 0) + p.get("tarjetas_visitante", 0),
+            "tarjetas_totales": (p.get("tarjetas_local") or 0) + (p.get("tarjetas_visitante") or 0),
             "pronostico": n1["mercado"],
             "probabilidad": round(n1["prob"], 1),
             "resultado_pronostico": "ACERTADO" if acierto else "FALLADO",
@@ -494,13 +501,26 @@ def api_auditoria_finalizados():
 @app.route('/api/alarmas_hoy')
 def api_alarmas_hoy():
     hoy_str = datetime.now().strftime("%Y-%m-%d")
-    partidos_hoy = ejecutar_sql("""
-        SELECT p.*, c.nombre as competicion_nombre 
-        FROM partidos p
-        LEFT JOIN competiciones c ON p.competicion_id = c.id
-        WHERE p.fecha::text LIKE ? OR p.estado = 'programado'
-        ORDER BY p.fecha ASC
-    """, (f"{hoy_str}%",), fetch="all") or []
+    conn = get_db_connection()
+    is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
+    conn.close()
+
+    if is_pg:
+        partidos_hoy = ejecutar_sql("""
+            SELECT p.*, c.nombre as competicion_nombre 
+            FROM partidos p
+            LEFT JOIN competiciones c ON p.competicion_id = c.id
+            WHERE CAST(p.fecha AS TEXT) LIKE ? OR p.estado = 'programado'
+            ORDER BY p.fecha ASC
+        """, (f"{hoy_str}%",), fetch="all") or []
+    else:
+        partidos_hoy = ejecutar_sql("""
+            SELECT p.*, c.nombre as competicion_nombre 
+            FROM partidos p
+            LEFT JOIN competiciones c ON p.competicion_id = c.id
+            WHERE p.fecha LIKE ? OR p.estado = 'programado'
+            ORDER BY p.fecha ASC
+        """, (f"{hoy_str}%",), fetch="all") or []
 
     alarmas = []
     for p in partidos_hoy:
@@ -513,6 +533,7 @@ def api_alarmas_hoy():
             "hora_ecuador": convertir_a_hora_ecuador(p.get("fecha")),
             "local": loc,
             "visitante": vis,
+            "estado": p.get("estado", "programado"),
             "confianza": res["indice_confianza"],
             "alerta_riesgo": res["alerta_riesgo"],
             "mercado_recomendado": res["nivel_1"]["mercado"],
