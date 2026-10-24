@@ -84,22 +84,42 @@ LIGAS_INICIALES = [
     ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica")
 ]
 
+# ==============================================================================
+# CONEXIÓN BLINDADA CON SUPABASE Y SQLITE
+# ==============================================================================
 def get_db_connection():
     if PG_DISPONIBLE:
+        # 1. Intentar variable de entorno de Render
         env_url = os.environ.get("DATABASE_URL")
         if env_url:
             try:
                 url_limpia = env_url.replace("postgres://", "postgresql://", 1)
-                return psycopg2.connect(url_limpia, sslmode='require', connect_timeout=5)
+                if "CHIqui18..%" in url_limpia and "CHIqui18..%25" not in url_limpia:
+                    url_limpia = url_limpia.replace("CHIqui18..%", "CHIqui18..%25")
+                return psycopg2.connect(url_limpia, sslmode='require', connect_timeout=4)
             except Exception as e:
-                print(f"[DB] Error DATABASE_URL: {e}")
+                print(f"[DB] Fallo conexion con DATABASE_URL: {e}")
 
-        # Intento de conexión al pooler de Supabase
-        uri_supabase = "postgresql://postgres.waldnnzetbbmbsyokzxp:CHIqui18..%25@aws-0-us-west-1.pooler.supabase.com:6543/postgres"
-        try:
-            return psycopg2.connect(uri_supabase, sslmode='require', connect_timeout=5)
-        except Exception:
-            pass
+        # 2. Conexión directa a Supabase con parámetros separados
+        hosts_a_probar = [
+            "aws-1-us-west-2.pooler.supabase.com",
+            "aws-0-us-west-1.pooler.supabase.com"
+        ]
+        
+        for host in hosts_a_probar:
+            for port in [5432, 6543]:
+                try:
+                    return psycopg2.connect(
+                        host=host,
+                        port=port,
+                        dbname="postgres",
+                        user="postgres.waldnnzetbbmbsyokzxp",
+                        password="CHIqui18..%",
+                        sslmode="require",
+                        connect_timeout=3
+                    )
+                except Exception:
+                    pass
 
     return sqlite3.connect(DB_NAME)
 
@@ -239,6 +259,9 @@ def inicializar_bd():
 
 inicializar_bd()
 
+# ==============================================================================
+# HORA ECUADOR (UTC-5)
+# ==============================================================================
 def formatear_fecha_hora_ecuador(valor_fecha):
     if not valor_fecha:
         return datetime.now().strftime("%Y-%m-%d"), "Por definir"
@@ -270,6 +293,9 @@ def formatear_fecha_hora_ecuador(valor_fecha):
     s_raw = str(valor_fecha)
     return s_raw[:10], "Por definir"
 
+# ==============================================================================
+# DESCARGA DE DATOS REALES ESPN
+# ==============================================================================
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HTTP_HEADERS)
     with urllib.request.urlopen(req, timeout=8) as resp:
@@ -370,6 +396,9 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
     except Exception as e:
         return 0, str(e)
 
+# ==============================================================================
+# AUDITORÍA DE CANCHA: ÚLTIMO PARTIDO INDIVIDUAL + PROMEDIO 5 ENCUENTROS
+# ==============================================================================
 def auditar_partido_flexible(competicion_id, local, visitante):
     def obtener_radiografia_club(club):
         c_upper = str(club).strip().upper()
@@ -483,6 +512,9 @@ def auditar_partido_flexible(competicion_id, local, visitante):
         "rad_v": rad_v
     }
 
+# ==============================================================================
+# RUTAS DE SERVICIO WEB & APIS
+# ==============================================================================
 @app.route('/')
 def home():
     ligas = ejecutar_sql("SELECT id, nombre, pais FROM competiciones WHERE activa = 1 ORDER BY nombre", fetch="all") or []
@@ -520,7 +552,6 @@ def api_alarmas_hoy():
                 for f_str in fechas_consulta:
                     descargar_partidos_fecha(cod, f_str)
 
-        # Consulta universal sin conversión de fecha compleja para evitar errores SQL
         partidos_bd = ejecutar_sql("""
             SELECT p.*, c.nombre as competicion_nombre 
             FROM partidos p
