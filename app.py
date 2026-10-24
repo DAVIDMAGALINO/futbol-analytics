@@ -53,6 +53,7 @@ DICCIONARIO_LIGAS = {
     "champions": "uefa.champions", "champions league": "uefa.champions", "uefa.champions": "uefa.champions",
     "europa league": "uefa.europa", "uefa.europa": "uefa.europa",
     "conference": "uefa.europa.conf", "conference league": "uefa.europa.conf", "uefa.europa.conf": "uefa.europa.conf",
+    "league one": "eng.3", "eng.3": "eng.3",
     "libertadores": "conmebol.libertadores", "conmebol.libertadores": "conmebol.libertadores",
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
@@ -72,6 +73,7 @@ LIGAS_INICIALES = [
     ("uefa.champions", "UEFA Champions League", "Europa"),
     ("uefa.europa", "UEFA Europa League", "Europa"),
     ("uefa.europa.conf", "UEFA Conference League", "Europa"),
+    ("eng.3", "League One Inglaterra", "Inglaterra"),
     ("mex.1", "Liga MX México", "México"),
     ("usa.1", "Major League Soccer (MLS)", "Estados Unidos"),
     ("ned.1", "Eredivisie Países Bajos", "Países Bajos"),
