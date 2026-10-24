@@ -85,7 +85,7 @@ LIGAS_INICIALES = [
     ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica")
 ]
 
-# Blindaje contra respuestas HTML en rutas API
+# Blindaje contra respuestas HTML en rutas API para evitar errores de sintaxis JSON
 @app.errorhandler(Exception)
 def handle_exception(e):
     if request.path.startswith('/api/'):
@@ -95,6 +95,7 @@ def handle_exception(e):
 
 def get_db_connection():
     if PG_DISPONIBLE:
+        # 1. Intentar variable de entorno si existe
         env_url = os.environ.get("DATABASE_URL")
         if env_url:
             try:
@@ -103,20 +104,25 @@ def get_db_connection():
             except Exception as e:
                 print(f"[DB] Error DATABASE_URL: {e}")
 
-        for host in ["aws-0-us-west-1.pooler.supabase.com", "aws-1-us-west-2.pooler.supabase.com"]:
-            for port in [5432, 6543]:
-                try:
-                    return psycopg2.connect(
-                        host=host,
-                        port=port,
-                        dbname="postgres",
-                        user="postgres.waldnnzetbbmbsyokzxp",
-                        password="CHIqui18..%",
-                        sslmode="require",
-                        connect_timeout=5
-                    )
-                except Exception:
-                    pass
+        # 2. Conexión directa a Supabase
+        uri_supabase = "postgresql://postgres.waldnnzetbbmbsyokzxp:CHIqui18..%25@aws-0-us-west-1.pooler.supabase.com:6543/postgres"
+        try:
+            return psycopg2.connect(uri_supabase, sslmode='require', connect_timeout=5)
+        except Exception:
+            pass
+
+        try:
+            return psycopg2.connect(
+                host="aws-0-us-west-1.pooler.supabase.com",
+                port=5432,
+                dbname="postgres",
+                user="postgres.waldnnzetbbmbsyokzxp",
+                password="CHIqui18..%",
+                sslmode="require",
+                connect_timeout=5
+            )
+        except Exception:
+            pass
 
     return sqlite3.connect(DB_NAME)
 
@@ -327,7 +333,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         data = get_json(url)
         events = data.get("events", [])
         if not events:
-            return 0, f"No hay eventos"
+            return 0, "No hay eventos"
             
         total_guardados = 0
         conn = get_db_connection()
@@ -537,21 +543,22 @@ def api_alarmas_hoy():
                 for f_str in fechas_consulta:
                     descargar_partidos_fecha(cod, f_str)
 
-        # Consulta segura de partidos: evita error de casteo de fechas en Supabase
         conn = get_db_connection()
         is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
         if conn:
             conn.close()
 
         ayer_dt = ahora_ecuador - timedelta(days=1)
+        fecha_filtro = ayer_dt.strftime("%Y-%m-%d")
+
         if is_pg:
             partidos_bd = ejecutar_sql("""
                 SELECT p.*, c.nombre as competicion_nombre 
                 FROM partidos p
                 LEFT JOIN competiciones c ON p.competicion_id = c.id
-                WHERE p.fecha >= %s::timestamptz
+                WHERE p.fecha >= CAST(? AS timestamptz)
                 ORDER BY p.fecha ASC
-            """, (ayer_dt.strftime("%Y-%m-%d 00:00:00+00"),), fetch="all") or []
+            """, (fecha_filtro,), fetch="all") or []
         else:
             partidos_bd = ejecutar_sql("""
                 SELECT p.*, c.nombre as competicion_nombre 
@@ -559,7 +566,7 @@ def api_alarmas_hoy():
                 LEFT JOIN competiciones c ON p.competicion_id = c.id
                 WHERE p.fecha >= ?
                 ORDER BY p.fecha ASC
-            """, (ayer_dt.strftime("%Y-%m-%d"),), fetch="all") or []
+            """, (fecha_filtro,), fetch="all") or []
 
         if not partidos_bd:
             partidos_bd = ejecutar_sql("""
