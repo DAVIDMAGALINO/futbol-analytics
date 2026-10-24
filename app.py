@@ -33,56 +33,53 @@ HTTP_HEADERS = {
 }
 
 DICCIONARIO_LIGAS = {
-    "ecuador": "ecu.1", "ligapro": "ecu.1",
-    "colombia": "col.1", "betplay": "col.1",
-    "espana": "esp.1", "españa": "esp.1", "laliga": "esp.1",
-    "inglaterra": "eng.1", "premier": "eng.1", "premier league": "eng.1",
-    "italia": "ita.1", "serie a": "ita.1", "calcio": "ita.1",
-    "alemania": "ger.1", "bundesliga": "ger.1",
-    "francia": "fra.1", "ligue 1": "fra.1",
-    "argentina": "arg.1", "liga profesional": "arg.1",
-    "mexico": "mex.1", "méxico": "mex.1", "liga mx": "mex.1",
-    "chile": "chi.1", "campeonato nacional": "chi.1",
-    "peru": "per.1", "perú": "per.1", "liga 1": "per.1",
-    "bolivia": "bol.1", "division profesional": "bol.1",
-    "brasil": "bra.1", "brasileirao": "bra.1",
-    "champions": "uefa.champions", "champions league": "uefa.champions",
-    "europa league": "uefa.europa",
-    "libertadores": "conmebol.libertadores",
-    "sudamericana": "conmebol.sudamericana"
+    "ecuador": "ecu.1", "ligapro": "ecu.1", "ecu.1": "ecu.1",
+    "colombia": "col.1", "betplay": "col.1", "col.1": "col.1",
+    "espana": "esp.1", "españa": "esp.1", "laliga": "esp.1", "esp.1": "esp.1",
+    "inglaterra": "eng.1", "premier": "eng.1", "premier league": "eng.1", "eng.1": "eng.1",
+    "italia": "ita.1", "serie a": "ita.1", "calcio": "ita.1", "ita.1": "ita.1",
+    "alemania": "ger.1", "bundesliga": "ger.1", "ger.1": "ger.1",
+    "francia": "fra.1", "ligue 1": "fra.1", "fra.1": "fra.1",
+    "argentina": "arg.1", "liga profesional": "arg.1", "arg.1": "arg.1",
+    "mexico": "mex.1", "méxico": "mex.1", "liga mx": "mex.1", "mex.1": "mex.1",
+    "chile": "chi.1", "campeonato nacional": "chi.1", "chi.1": "chi.1",
+    "peru": "per.1", "perú": "per.1", "liga 1": "per.1", "per.1": "per.1",
+    "bolivia": "bol.1", "division profesional": "bol.1", "bol.1": "bol.1",
+    "brasil": "bra.1", "brasileirao": "bra.1", "bra.1": "bra.1",
+    "usa": "usa.1", "mls": "usa.1", "estados unidos": "usa.1", "usa.1": "usa.1",
+    "holanda": "ned.1", "paises bajos": "ned.1", "eredivisie": "ned.1", "ned.1": "ned.1",
+    "portugal": "por.1", "primeira liga": "por.1", "por.1": "por.1",
+    "australia": "aus.1", "a-league": "aus.1", "aus.1": "aus.1",
+    "champions": "uefa.champions", "champions league": "uefa.champions", "uefa.champions": "uefa.champions",
+    "europa league": "uefa.europa", "uefa.europa": "uefa.europa",
+    "conference": "uefa.europa.conf", "conference league": "uefa.europa.conf", "uefa.europa.conf": "uefa.europa.conf",
+    "libertadores": "conmebol.libertadores", "conmebol.libertadores": "conmebol.libertadores",
+    "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
+# 21 LIGAS COMPLETAS (SIN REPETIDOS)
 LIGAS_INICIALES = [
-    # Sudamérica
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
-    ("col.1", "Liga BetPlay Colombia", "Colombia"),
-    ("arg.1", "Liga Profesional Argentina", "Argentina"),
-    ("bra.1", "Brasileirao Serie A", "Brasil"),
-    ("chi.1", "Campeonato Nacional Chile", "Chile"),
-    ("per.1", "Liga 1 Perú", "Perú"),
-    ("bol.1", "División Profesional Bolivia", "Bolivia"),
-    ("uru.1", "Primera División Uruguay", "Uruguay"),
-    ("par.1", "Primera División Paraguay", "Paraguay"),
-    ("ven.1", "Liga FUTVE Venezuela", "Venezuela"),
-    
-    # Norte y Centroamérica
-    ("mex.1", "Liga MX México", "México"),
-    ("usa.1", "Major League Soccer (MLS)", "Estados Unidos"),
-
-    # Europa (Top 5 + Secundarias clave)
     ("esp.1", "LaLiga España", "España"),
     ("eng.1", "Premier League", "Inglaterra"),
     ("ita.1", "Serie A Italia", "Italia"),
     ("ger.1", "Bundesliga", "Alemania"),
     ("fra.1", "Ligue 1", "Francia"),
-    ("por.1", "Primeira Liga Portugal", "Portugal"),
-    ("ned.1", "Eredivisie Países Bajos", "Países Bajos"),
-
-    # Torneos Internacionales de Clubes
+    ("col.1", "Liga BetPlay", "Colombia"),
+    ("arg.1", "Liga Profesional", "Argentina"),
+    ("conmebol.libertadores", "Copa Libertadores", "Sudamérica"),
+    ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica"),
     ("uefa.champions", "UEFA Champions League", "Europa"),
     ("uefa.europa", "UEFA Europa League", "Europa"),
-    ("conmebol.libertadores", "Copa Libertadores", "Sudamérica"),
-    ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica")
+    ("uefa.europa.conf", "UEFA Conference League", "Europa"),
+    ("mex.1", "Liga MX México", "México"),
+    ("usa.1", "Major League Soccer (MLS)", "Estados Unidos"),
+    ("ned.1", "Eredivisie Países Bajos", "Países Bajos"),
+    ("por.1", "Primeira Liga Portugal", "Portugal"),
+    ("bol.1", "División Profesional Bolivia", "Bolivia"),
+    ("per.1", "Liga 1 Perú", "Perú"),
+    ("aus.1", "A-League Australia", "Australia"),
+    ("bra.1", "Brasileirao Serie A", "Brasil")
 ]
 
 # ==============================================================================
@@ -186,6 +183,7 @@ def inicializar_bd():
         """)
         conn.commit()
 
+        # Inserción idempotente sin duplicar registros
         for lid, lnom, lpais in LIGAS_INICIALES:
             try:
                 cur.execute("""
@@ -534,11 +532,17 @@ def api_partidos_guardados():
 def api_alarmas_hoy():
     forzar = request.args.get('forzar', 'false').lower() == 'true'
 
+    # Sincronización automática de las 21 ligas consolidadas
     if forzar:
         ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
-        for l in ligas_sync:
-            descargar_partidos_fecha(l["id"], datetime.now().strftime("%Y%m%d"))
-            descargar_partidos_fecha(l["id"], (datetime.now() + timedelta(days=1)).strftime("%Y%m%d"))
+        codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
+        
+        hoy_str = datetime.now().strftime("%Y%m%d")
+        manana_str = (datetime.now() + timedelta(days=1)).strftime("%Y%m%d")
+        
+        for cod in codigos_a_escanear:
+            descargar_partidos_fecha(cod, hoy_str)
+            descargar_partidos_fecha(cod, manana_str)
 
     partidos_hoy = ejecutar_sql("""
         SELECT p.*, c.nombre as competicion_nombre 
