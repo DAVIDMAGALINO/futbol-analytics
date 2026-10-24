@@ -53,16 +53,36 @@ DICCIONARIO_LIGAS = {
 }
 
 LIGAS_INICIALES = [
+    # Sudamérica
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
+    ("col.1", "Liga BetPlay Colombia", "Colombia"),
+    ("arg.1", "Liga Profesional Argentina", "Argentina"),
+    ("bra.1", "Brasileirao Serie A", "Brasil"),
+    ("chi.1", "Campeonato Nacional Chile", "Chile"),
+    ("per.1", "Liga 1 Perú", "Perú"),
+    ("bol.1", "División Profesional Bolivia", "Bolivia"),
+    ("uru.1", "Primera División Uruguay", "Uruguay"),
+    ("par.1", "Primera División Paraguay", "Paraguay"),
+    ("ven.1", "Liga FUTVE Venezuela", "Venezuela"),
+    
+    # Norte y Centroamérica
+    ("mex.1", "Liga MX México", "México"),
+    ("usa.1", "Major League Soccer (MLS)", "Estados Unidos"),
+
+    # Europa (Top 5 + Secundarias clave)
     ("esp.1", "LaLiga España", "España"),
     ("eng.1", "Premier League", "Inglaterra"),
     ("ita.1", "Serie A Italia", "Italia"),
     ("ger.1", "Bundesliga", "Alemania"),
     ("fra.1", "Ligue 1", "Francia"),
-    ("col.1", "Liga BetPlay", "Colombia"),
-    ("arg.1", "Liga Profesional", "Argentina"),
+    ("por.1", "Primeira Liga Portugal", "Portugal"),
+    ("ned.1", "Eredivisie Países Bajos", "Países Bajos"),
+
+    # Torneos Internacionales de Clubes
+    ("uefa.champions", "UEFA Champions League", "Europa"),
+    ("uefa.europa", "UEFA Europa League", "Europa"),
     ("conmebol.libertadores", "Copa Libertadores", "Sudamérica"),
-    ("uefa.champions", "UEFA Champions League", "Europa")
+    ("conmebol.sudamericana", "Copa Sudamericana", "Sudamérica")
 ]
 
 # ==============================================================================
