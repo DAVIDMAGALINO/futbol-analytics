@@ -59,7 +59,6 @@ DICCIONARIO_LIGAS = {
     "sudamericana": "conmebol.sudamericana", "conmebol.sudamericana": "conmebol.sudamericana"
 }
 
-# 23 COMPETICIONES OFICIALES
 LIGAS_INICIALES = [
     ("ecu.1", "LigaPro Ecuador", "Ecuador"),
     ("esp.1", "LaLiga España", "España"),
@@ -87,47 +86,53 @@ LIGAS_INICIALES = [
 ]
 
 # ==============================================================================
-# CONEXIÓN A BASE DE DATOS SUPABASE DIRECTO
+# CONEXIÓN BLINDADA CON SUPABASE Y SQLITE
 # ==============================================================================
 def get_db_connection():
-    env_url = os.environ.get("DATABASE_URL")
-    if env_url and PG_DISPONIBLE:
-        try:
-            url = env_url.replace("postgres://", "postgresql://", 1)
-            return psycopg2.connect(url, sslmode='require', connect_timeout=10)
-        except Exception:
-            pass
-
     if PG_DISPONIBLE:
-        for port in [6543, 5432]:
+        # Intentar conectar con la URI de entorno si existe
+        env_url = os.environ.get("DATABASE_URL")
+        if env_url:
             try:
-                return psycopg2.connect(
-                    host="aws-0-us-west-1.pooler.supabase.com",
-                    port=port,
-                    dbname="postgres",
-                    user="postgres.waldnnzetbbmbsyokzxp",
-                    password="CHIqui18..%",
-                    sslmode="require",
-                    connect_timeout=10
-                )
-            except Exception:
-                pass
+                url_limpia = env_url.replace("postgres://", "postgresql://", 1)
+                return psycopg2.connect(url_limpia, sslmode='require', connect_timeout=5)
+            except Exception as e:
+                print(f"[DB] Error conectando con DATABASE_URL: {e}")
 
+        # Intentar conectar directamente por credenciales de Supabase
+        for host in ["aws-0-us-west-1.pooler.supabase.com", "aws-1-us-west-2.pooler.supabase.com"]:
+            for port in [5432, 6543]:
+                try:
+                    return psycopg2.connect(
+                        host=host,
+                        port=port,
+                        dbname="postgres",
+                        user="postgres.waldnnzetbbmbsyokzxp",
+                        password="CHIqui18..%",
+                        sslmode="require",
+                        connect_timeout=5
+                    )
+                except Exception:
+                    pass
+
+    # Respaldo seguro SQLite
     return sqlite3.connect(DB_NAME)
 
 def ejecutar_sql(query, params=(), fetch=None):
-    conn = get_db_connection()
-    is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
-    
-    if is_pg:
-        query = query.replace("?", "%s")
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-    else:
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        
+    conn = None
     try:
-        cur.execute(query, params)
+        conn = get_db_connection()
+        is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
+        
+        if is_pg:
+            query_pg = query.replace("?", "%s")
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(query_pg, params)
+        else:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(query, params)
+            
         if fetch == "all":
             res = [dict(r) for r in cur.fetchall()]
         elif fetch == "one":
@@ -138,108 +143,116 @@ def ejecutar_sql(query, params=(), fetch=None):
         conn.commit()
         return res
     except Exception as ex:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        print(f"[SQL ERROR] {ex} | Query: {query}")
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         return [] if fetch == "all" else None
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 def inicializar_bd():
-    conn = get_db_connection()
-    is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
-    
-    if is_pg:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS competiciones (
-                id TEXT PRIMARY KEY,
-                nombre TEXT NOT NULL,
-                pais TEXT,
-                activa INTEGER DEFAULT 1
-            );
-            CREATE TABLE IF NOT EXISTS partidos (
-                id SERIAL PRIMARY KEY,
-                fixture_id TEXT UNIQUE,
-                competicion_id TEXT REFERENCES competiciones(id),
-                fecha TIMESTAMPTZ,
-                temporada TEXT,
-                jornada TEXT,
-                local TEXT,
-                visitante TEXT,
-                goles_local INTEGER DEFAULT 0,
-                goles_visitante INTEGER DEFAULT 0,
-                corners_local INTEGER DEFAULT 0,
-                corners_visitante INTEGER DEFAULT 0,
-                tarjetas_local INTEGER DEFAULT 0,
-                tarjetas_visitante INTEGER DEFAULT 0,
-                offsides_local INTEGER DEFAULT 0,
-                offsides_visitante INTEGER DEFAULT 0,
-                estado TEXT DEFAULT 'programado',
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-        conn.commit()
+    conn = None
+    try:
+        conn = get_db_connection()
+        is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
+        
+        if is_pg:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS competiciones (
+                    id TEXT PRIMARY KEY,
+                    nombre TEXT NOT NULL,
+                    pais TEXT,
+                    activa INTEGER DEFAULT 1
+                );
+                CREATE TABLE IF NOT EXISTS partidos (
+                    id SERIAL PRIMARY KEY,
+                    fixture_id TEXT UNIQUE,
+                    competicion_id TEXT REFERENCES competiciones(id),
+                    fecha TIMESTAMPTZ,
+                    temporada TEXT,
+                    jornada TEXT,
+                    local TEXT,
+                    visitante TEXT,
+                    goles_local INTEGER DEFAULT 0,
+                    goles_visitante INTEGER DEFAULT 0,
+                    corners_local INTEGER DEFAULT 0,
+                    corners_visitante INTEGER DEFAULT 0,
+                    tarjetas_local INTEGER DEFAULT 0,
+                    tarjetas_visitante INTEGER DEFAULT 0,
+                    offsides_local INTEGER DEFAULT 0,
+                    offsides_visitante INTEGER DEFAULT 0,
+                    estado TEXT DEFAULT 'programado',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """)
+            conn.commit()
 
-        for lid, lnom, lpais in LIGAS_INICIALES:
+            for lid, lnom, lpais in LIGAS_INICIALES:
+                try:
+                    cur.execute("""
+                        INSERT INTO competiciones (id, nombre, pais, activa)
+                        VALUES (%s, %s, %s, 1)
+                        ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre, pais = EXCLUDED.pais, activa = 1
+                    """, (lid, lnom, lpais))
+                except Exception:
+                    pass
+            conn.commit()
+        else:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS competiciones (
+                    id TEXT PRIMARY KEY,
+                    nombre TEXT NOT NULL,
+                    pais TEXT,
+                    activa INTEGER DEFAULT 1
+                );
+                CREATE TABLE IF NOT EXISTS partidos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fixture_id TEXT UNIQUE,
+                    competicion_id TEXT,
+                    fecha TEXT,
+                    temporada TEXT,
+                    jornada TEXT,
+                    local TEXT,
+                    visitante TEXT,
+                    goles_local INTEGER DEFAULT 0,
+                    goles_visitante INTEGER DEFAULT 0,
+                    corners_local INTEGER DEFAULT 0,
+                    corners_visitante INTEGER DEFAULT 0,
+                    tarjetas_local INTEGER DEFAULT 0,
+                    tarjetas_visitante INTEGER DEFAULT 0,
+                    offsides_local INTEGER DEFAULT 0,
+                    offsides_visitante INTEGER DEFAULT 0,
+                    estado TEXT DEFAULT 'programado',
+                    created_at TEXT,
+                    updated_at TEXT
+                );
+            """)
+            cur = conn.cursor()
+            for lid, lnom, lpais in LIGAS_INICIALES:
+                try:
+                    cur.execute("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, ?, 1)", (lid, lnom, lpais))
+                except Exception:
+                    pass
+            conn.commit()
+    except Exception as e:
+        print(f"[INIT BD WARNING] {e}")
+    finally:
+        if conn:
             try:
-                cur.execute("""
-                    INSERT INTO competiciones (id, nombre, pais, activa)
-                    VALUES (%s, %s, %s, 1)
-                    ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre, pais = EXCLUDED.pais, activa = 1
-                """, (lid, lnom, lpais))
+                conn.close()
             except Exception:
                 pass
-        conn.commit()
-    else:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS competiciones (
-                id TEXT PRIMARY KEY,
-                nombre TEXT NOT NULL,
-                pais TEXT,
-                activa INTEGER DEFAULT 1
-            );
-            CREATE TABLE IF NOT EXISTS partidos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fixture_id TEXT UNIQUE,
-                competicion_id TEXT,
-                fecha TEXT,
-                temporada TEXT,
-                jornada TEXT,
-                local TEXT,
-                visitante TEXT,
-                goles_local INTEGER DEFAULT 0,
-                goles_visitante INTEGER DEFAULT 0,
-                corners_local INTEGER DEFAULT 0,
-                corners_visitante INTEGER DEFAULT 0,
-                tarjetas_local INTEGER DEFAULT 0,
-                tarjetas_visitante INTEGER DEFAULT 0,
-                offsides_local INTEGER DEFAULT 0,
-                offsides_visitante INTEGER DEFAULT 0,
-                estado TEXT DEFAULT 'programado',
-                created_at TEXT,
-                updated_at TEXT
-            );
-        """)
-        cur = conn.cursor()
-        for lid, lnom, lpais in LIGAS_INICIALES:
-            try:
-                cur.execute("INSERT OR REPLACE INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, ?, 1)", (lid, lnom, lpais))
-            except Exception:
-                pass
-        conn.commit()
 
-    conn.close()
-
-try:
-    inicializar_bd()
-except Exception as e:
-    print(f"Aviso durante inicializar_bd: {e}")
+inicializar_bd()
 
 # ==============================================================================
 # HORA ECUADOR (UTC-5)
@@ -328,7 +341,8 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         total_guardados = 0
         conn = get_db_connection()
         is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
-        conn.close()
+        if conn:
+            conn.close()
         
         for ev in events:
             fix_id = str(ev.get("id"))
@@ -387,8 +401,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
 # ==============================================================================
 def auditar_partido_flexible(competicion_id, local, visitante):
     def obtener_radiografia_club(club):
-        c_upper = club.strip().upper()
-        # Consulta limpia que funciona en Supabase (PostgreSQL) y SQLite
+        c_upper = str(club).strip().upper()
         filas = ejecutar_sql("""
             SELECT 
                 fecha, local, visitante,
@@ -439,7 +452,7 @@ def auditar_partido_flexible(competicion_id, local, visitante):
         rad_l = obtener_radiografia_club(local)
         rad_v = obtener_radiografia_club(visitante)
     except Exception as ex:
-        print(f"Error procesando radiografia: {ex}")
+        print(f"[RAD ERROR] {ex}")
         rad_l, rad_v = None, None
 
     if not rad_l or not rad_v:
@@ -528,64 +541,68 @@ def api_equipos(liga):
 
 @app.route('/api/alarmas_hoy')
 def api_alarmas_hoy():
-    forzar = request.args.get('forzar', 'false').lower() == 'true'
-    ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
+    try:
+        forzar = request.args.get('forzar', 'false').lower() == 'true'
+        ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
-    if forzar:
-        ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
-        codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
-        fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-15, 5)]
-        
-        for cod in codigos_a_escanear:
-            for f_str in fechas_consulta:
-                descargar_partidos_fecha(cod, f_str)
+        if forzar:
+            ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
+            codigos_a_escanear = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
+            fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-15, 5)]
+            
+            for cod in codigos_a_escanear:
+                for f_str in fechas_consulta:
+                    descargar_partidos_fecha(cod, f_str)
 
-    ayer_ecuador_str = (ahora_ecuador - timedelta(days=1)).strftime("%Y-%m-%d")
-    partidos_bd = ejecutar_sql("""
-        SELECT p.*, c.nombre as competicion_nombre 
-        FROM partidos p
-        LEFT JOIN competiciones c ON p.competicion_id = c.id
-        WHERE p.fecha >= ?
-        ORDER BY p.fecha ASC
-    """, (ayer_ecuador_str,), fetch="all") or []
-
-    if not partidos_bd:
+        ayer_ecuador_str = (ahora_ecuador - timedelta(days=1)).strftime("%Y-%m-%d")
         partidos_bd = ejecutar_sql("""
             SELECT p.*, c.nombre as competicion_nombre 
             FROM partidos p
             LEFT JOIN competiciones c ON p.competicion_id = c.id
-            ORDER BY p.fecha DESC LIMIT 200
-        """, fetch="all") or []
+            WHERE p.fecha >= ?
+            ORDER BY p.fecha ASC
+        """, (ayer_ecuador_str,), fetch="all") or []
 
-    alarmas = []
-    for p in partidos_bd:
-        loc = p["local"]
-        vis = p["visitante"]
-        res = auditar_partido_flexible(p["competicion_id"], loc, vis)
-        fecha_ecu, hora_ecu = formatear_fecha_hora_ecuador(p.get("fecha"))
+        if not partidos_bd:
+            partidos_bd = ejecutar_sql("""
+                SELECT p.*, c.nombre as competicion_nombre 
+                FROM partidos p
+                LEFT JOIN competiciones c ON p.competicion_id = c.id
+                ORDER BY p.fecha DESC LIMIT 200
+            """, fetch="all") or []
 
-        alarmas.append({
-            "fixture_id": p.get("fixture_id"),
-            "competicion_nombre": p.get("competicion_nombre", p.get("competicion_id")),
-            "competicion_id": p.get("competicion_id"),
-            "fecha": fecha_ecu,
-            "hora_ecuador": hora_ecu,
-            "local": loc,
-            "visitante": vis,
-            "estado": p.get("estado", "programado"),
-            "marcador": f"{p.get('goles_local', 0)} - {p.get('goles_visitante', 0)}" if p.get("estado") == "finalizado" else None,
-            "confianza": res["indice_confianza"],
-            "alerta_riesgo": res["alerta_riesgo"],
-            "mercado_recomendado": res["mercado"],
-            "probabilidad": res["probabilidad"],
-            "cuota_justa": res["cuota_justa"],
-            "stake": res["stake"],
-            "hay_datos": res["hay_datos"],
-            "rad_l": res["rad_l"],
-            "rad_v": res["rad_v"]
-        })
+        alarmas = []
+        for p in partidos_bd:
+            loc = p.get("local", "")
+            vis = p.get("visitante", "")
+            res = auditar_partido_flexible(p.get("competicion_id"), loc, vis)
+            fecha_ecu, hora_ecu = formatear_fecha_hora_ecuador(p.get("fecha"))
 
-    return jsonify({"success": True, "alarmas": alarmas})
+            alarmas.append({
+                "fixture_id": p.get("fixture_id"),
+                "competicion_nombre": p.get("competicion_nombre", p.get("competicion_id")),
+                "competicion_id": p.get("competicion_id"),
+                "fecha": fecha_ecu,
+                "hora_ecuador": hora_ecu,
+                "local": loc,
+                "visitante": vis,
+                "estado": p.get("estado", "programado"),
+                "marcador": f"{p.get('goles_local', 0)} - {p.get('goles_visitante', 0)}" if p.get("estado") == "finalizado" else None,
+                "confianza": res["indice_confianza"],
+                "alerta_riesgo": res["alerta_riesgo"],
+                "mercado_recomendado": res["mercado"],
+                "probabilidad": res["probabilidad"],
+                "cuota_justa": res["cuota_justa"],
+                "stake": res["stake"],
+                "hay_datos": res["hay_datos"],
+                "rad_l": res["rad_l"],
+                "rad_v": res["rad_v"]
+            })
+
+        return jsonify({"success": True, "alarmas": alarmas})
+    except Exception as general_err:
+        print(f"[ALARMAS ERROR] {general_err}")
+        return jsonify({"success": True, "alarmas": []})
 
 @app.route('/api/agregar_enlace', methods=['POST'])
 def api_agregar_enlace():
@@ -616,7 +633,8 @@ def api_agregar_enlace():
 
     conn = get_db_connection()
     is_pg = PG_DISPONIBLE and not isinstance(conn, sqlite3.Connection)
-    conn.close()
+    if conn:
+        conn.close()
 
     if is_pg:
         ejecutar_sql("""
