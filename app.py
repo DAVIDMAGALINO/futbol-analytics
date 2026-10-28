@@ -269,8 +269,8 @@ def obtener_tiempos_ecuador(valor_fecha):
     """
     tz_ecu = timezone(timedelta(hours=-5))
     if not valor_fecha:
-        hoy = (datetime.now(timezone.utc).astimezone(tz_ecu)).strftime("%Y-%m-%d")
-        return hoy, "Por definir", datetime.now(timezone.utc).astimezone(tz_ecu).isoformat()
+        dt_ahora = datetime.now(timezone.utc).astimezone(tz_ecu)
+        return dt_ahora.strftime("%Y-%m-%d"), "Por definir", dt_ahora.isoformat()
 
     try:
         dt = None
@@ -367,26 +367,44 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             gl = int(loc_c.get("score", 0) or 0)
             gv = int(vis_c.get("score", 0) or 0)
             
-            # Comprobación de estado finalizado / en vivo / programado
+            comp_info = ev.get("competitions", [{}])[0]
+            fecha_cruda = comp_info.get("date") or ev.get("date")
+            fecha_ecu, hora_ecu, fecha_guardar = obtener_tiempos_ecuador(fecha_cruda)
+
             status_obj = ev.get("status", {})
             completed = status_obj.get("type", {}).get("completed", False)
             desc_status = status_obj.get("type", {}).get("description", "").lower()
-            
-            if completed or "final" in desc_status or "ft" in desc_status:
-                estado = "finalizado"
-            elif any(k in desc_status for k in ["in progress", "live", "en curso", "1st half", "2nd half", "halftime"]):
-                estado = "en_vivo"
-            else:
-                estado = "programado"
 
-            # Si el partido ya concluyó, traemos córners, tarjetas y offsides reales
+            # Cálculo de minutos transcurridos para blindar el estado EN VIVO vs FINALIZADO
+            minutos_transcurridos = -1
+            try:
+                dt_partido = datetime.fromisoformat(fecha_guardar)
+                ahora_ecu = datetime.now(timezone(timedelta(hours=-5)))
+                delta = ahora_ecu - dt_partido
+                minutos_transcurridos = delta.total_seconds() / 60
+            except Exception:
+                pass
+
+            if minutos_transcurridos < 0:
+                estado = "programado"
+            elif 0 <= minutos_transcurridos < 115:
+                # Si está dentro de la franja normal de juego (0 a 115 min)
+                if completed and minutos_transcurridos < 105:
+                    estado = "en_vivo"
+                elif any(k in desc_status for k in ["in progress", "live", "en curso", "1st half", "2nd half", "halftime", "ht"]) or completed:
+                    estado = "en_vivo"
+                else:
+                    estado = "en_vivo"
+            else:
+                # Si ya pasaron más de 115 minutos desde el inicio oficial
+                if completed or any(k in desc_status for k in ["final", "ft", "ended"]):
+                    estado = "finalizado"
+                else:
+                    estado = "finalizado"
+
             st = {"cl": 0, "cv": 0, "tl": 0, "tv": 0, "ol": 0, "ov": 0}
             if estado == "finalizado":
                 st = descargar_resumen_evento(codigo_liga, fix_id)
-            
-            comp_info = ev.get("competitions", [{}])[0]
-            fecha_cruda = comp_info.get("date") or ev.get("date")
-            _, _, fecha_guardar = obtener_tiempos_ecuador(fecha_cruda)
 
             if is_pg:
                 ejecutar_sql("""
@@ -582,20 +600,15 @@ def api_alarmas_hoy():
         forzar = request.args.get('forzar', 'false').lower() == 'true'
         ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
-        # Si se presiona "Escaneo en Vivo" o se fuerza actualización
         if forzar:
             ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
             codigos = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
             
-            # Consultamos los últimos 3 días (para actualizar partidos terminados)
-            # y los siguientes 4 días (para capturar partidos programados y fechas dobles)
             fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-3, 5)]
             for cod in codigos:
                 for f_str in fechas_consulta:
                     descargar_partidos_fecha(cod, f_str)
 
-        # VENTANA VISUAL DINÁMICA: Muestra desde 3 días atrás hasta 5 días adelante.
-        # Los partidos más viejos NO se borran de la base de datos (se usan para la radiografía).
         fecha_desde = (ahora_ecuador - timedelta(days=3)).strftime("%Y-%m-%d 00:00:00")
         fecha_hasta = (ahora_ecuador + timedelta(days=5)).strftime("%Y-%m-%d 23:59:59")
 
@@ -675,16 +688,13 @@ def api_agregar_enlace():
         if not cod_detectado:
             return jsonify({"success": False, "msg": "No se reconoció la liga."})
 
-        # Insertar o activar en competiciones
         ejecutar_sql("""
             INSERT INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)
             ON CONFLICT (id) DO UPDATE SET activa = 1
         """, (cod_detectado, cod_detectado.upper()))
 
-        # Sincronización del día solicitado
         tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
         
-        # Historial de los 3 días anteriores para nutrir la radiografía de 5 partidos
         try:
             fecha_dt = datetime.strptime(fecha_req, "%Y%m%d")
             for i in range(1, 4):
