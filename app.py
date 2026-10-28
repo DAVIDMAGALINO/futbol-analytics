@@ -373,7 +373,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             completed = type_obj.get("completed", False)
             desc_status = type_obj.get("description", "").lower()
 
-            # DETECCIÓN DIRECTA Y ROBUSTA DE ESTADO
+            # Detección directa del estado de ESPN
             if state_espn == "in" or any(k in desc_status for k in ["in progress", "live", "en curso", "1st half", "2nd half", "halftime", "ht"]):
                 estado = "en_vivo"
             elif state_espn == "post" or completed or any(k in desc_status for k in ["final", "ft", "ended"]):
@@ -588,16 +588,37 @@ def api_alarmas_hoy():
                 for f_str in fechas_consulta:
                     descargar_partidos_fecha(cod, f_str)
 
-        fecha_desde = (ahora_ecuador - timedelta(days=3)).strftime("%Y-%m-%d 00:00:00")
-        fecha_hasta = (ahora_ecuador + timedelta(days=5)).strftime("%Y-%m-%d 23:59:59")
+        # Ventana de fechas: 3 días atrás y 5 días adelante con zona horaria explícita
+        fecha_desde = (ahora_ecuador - timedelta(days=3)).strftime("%Y-%m-%d 00:00:00-05:00")
+        fecha_hasta = (ahora_ecuador + timedelta(days=5)).strftime("%Y-%m-%d 23:59:59-05:00")
 
-        partidos_bd = ejecutar_sql("""
-            SELECT p.*, c.nombre as competicion_nombre 
-            FROM partidos p
-            LEFT JOIN competiciones c ON p.competicion_id = c.id
-            WHERE p.fecha >= ? AND p.fecha <= ?
-            ORDER BY p.fecha ASC
-        """, (fecha_desde, fecha_hasta), fetch="all") or []
+        conn_check = get_db_connection()
+        is_pg = PG_DISPONIBLE and not isinstance(conn_check, sqlite3.Connection)
+        if conn_check:
+            conn_check.close()
+
+        # Consulta protegida contra fallos de tipo TIMESTAMPTZ en Supabase
+        if is_pg:
+            query_pg = """
+                SELECT p.*, c.nombre as competicion_nombre 
+                FROM partidos p
+                LEFT JOIN competiciones c ON p.competicion_id = c.id
+                WHERE p.fecha >= (%s)::timestamptz AND p.fecha <= (%s)::timestamptz
+                ORDER BY p.fecha ASC
+            """
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(query_pg, (fecha_desde, fecha_hasta))
+            partidos_bd = [dict(r) for r in cur.fetchall()]
+            conn.close()
+        else:
+            partidos_bd = ejecutar_sql("""
+                SELECT p.*, c.nombre as competicion_nombre 
+                FROM partidos p
+                LEFT JOIN competiciones c ON p.competicion_id = c.id
+                WHERE p.fecha >= ? AND p.fecha <= ?
+                ORDER BY p.fecha ASC
+            """, (fecha_desde, fecha_hasta), fetch="all") or []
 
         alarmas = []
         for p in partidos_bd:
