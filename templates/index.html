@@ -8,9 +8,35 @@
     <style>
         body { background-color: #f4f6f9; font-family: system-ui, -apple-system, sans-serif; }
         .nav-pills .nav-link.active { background-color: #0d6efd; color: #fff; font-weight: bold; }
-        .card-match { border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px; background: #fff; }
+        .card-match { border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 20px; background: #fff; position: relative; }
         .badge-hora { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; font-weight: 600; font-size: 0.85rem; }
         .badge-estado { font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.5px; }
+        
+        /* Animación y estilo para partidos en vivo */
+        .badge-live {
+            background-color: #dc3545;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+            animation: pulse-live 1.8s infinite;
+        }
+        @keyframes pulse-live {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.85; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .marcador-live-box {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #0f172a;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 2px 10px;
+            border-radius: 8px;
+        }
+
         .table-radio { font-size: 0.82rem; margin-bottom: 0; }
         .table-radio th { background-color: #f8fafc; font-weight: 600; color: #475569; text-align: center; }
         .table-radio td { text-align: center; vertical-align: middle; }
@@ -100,10 +126,10 @@
         <div class="tab-pane fade" id="content-ligas">
             <div class="card p-4 mx-auto" style="max-width: 650px;">
                 <h5 class="fw-bold mb-2">Sincronizar Liga Específica</h5>
-                <p class="text-muted small">Descarga partidos con cobertura retrospectiva hacia Supabase.</p>
+                <p class="text-muted small">Descarga partidos con cobertura retrospectiva hacia Supabase o SQLite.</p>
 
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Código de Liga o URL de ESPN (ej. ecu.1, eng.1, esp.1, eng.2)</label>
+                    <label class="form-label fw-semibold">Código de Liga o URL de ESPN (ej. ecu.1, eng.1, esp.1, eng.league_cup)</label>
                     <input type="text" class="form-control" id="sync-liga" value="https://www.espn.com/soccer/standings/_/league/ecu.1">
                 </div>
                 <div class="mb-3">
@@ -149,19 +175,25 @@ let boleta = JSON.parse(localStorage.getItem('boleta_picks') || '[]');
 document.addEventListener('DOMContentLoaded', () => {
     actualizarContadorBoleta();
     cargarAlarmas(false);
+
+    // Auto-actualización silenciosa en tiempo real cada 45 segundos
+    setInterval(() => {
+        // Solo refresca si la pestaña activa es la de Alarmas
+        const tabAlarmasActiva = document.getElementById('tab-alarmas').classList.contains('active');
+        if (tabAlarmasActiva) {
+            cargarAlarmas(false, true); // true = silencioso
+        }
+    }, 45000);
 });
 
-async function cargarAlarmas(forzar = false) {
+async function cargarAlarmas(forzar = false, silencioso = false) {
     const btn = document.getElementById('btn-escanear');
     const status = document.getElementById('status-container');
-    const grid = document.getElementById('matches-grid');
 
-    // Limpiar cualquier alerta previa de inmediato
-    status.innerHTML = '';
-
-    if (forzar) {
+    if (forzar && !silencioso) {
         btn.disabled = true;
         btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Escaneando...`;
+        status.innerHTML = '';
     }
 
     try {
@@ -175,17 +207,18 @@ async function cargarAlarmas(forzar = false) {
             document.getElementById('count-alarmas').textContent = todasLasAlarmas.length;
             construirFiltrosFecha();
             renderizarTarjetas();
-            status.innerHTML = ''; // Garantiza que no quede cartel rojo
+            status.innerHTML = '';
         }
     } catch (err) {
         console.warn("Fallo temporal de lectura:", err);
-        // Si ya hay partidos en pantalla, no mostrar error molesto
-        if (todasLasAlarmas.length === 0) {
+        if (todasLasAlarmas.length === 0 && !silencioso) {
             status.innerHTML = `<div class="alert alert-warning py-2 small">Cargando datos del servidor...</div>`;
         }
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = `⚡ Escaneo en Vivo`;
+        if (!silencioso) {
+            btn.disabled = false;
+            btn.innerHTML = `⚡ Escaneo en Vivo`;
+        }
     }
 }
 
@@ -234,10 +267,19 @@ function renderizarTarjetas() {
 }
 
 function generarHtmlTarjeta(p) {
-    const esFinalizado = (p.estado === 'finalizado');
-    const badgeEstado = esFinalizado 
-        ? `<span class="badge bg-secondary badge-estado">FINALIZADO (${p.marcador || ''})</span>`
-        : `<span class="badge bg-success badge-estado">PROGRAMADO</span>`;
+    const estado = (p.estado || 'programado').toLowerCase();
+    let badgeEstado = '';
+    let bloqueMarcadorCentral = '';
+
+    if (estado === 'en_vivo' || p.es_en_vivo) {
+        badgeEstado = `<span class="badge badge-live">🔴 EN VIVO</span>`;
+        bloqueMarcadorCentral = `<div class="marcador-live-box text-danger">${p.goles_local} - ${p.goles_visitante}</div>`;
+    } else if (estado === 'finalizado') {
+        badgeEstado = `<span class="badge bg-secondary badge-estado">FINALIZADO</span>`;
+        bloqueMarcadorCentral = `<div class="marcador-live-box text-secondary">${p.goles_local} - ${p.goles_visitante}</div>`;
+    } else {
+        badgeEstado = `<span class="badge bg-success badge-estado">PROGRAMADO</span>`;
+    }
 
     let bloqueMetricas = '';
     if (p.hay_datos && p.rad_l && p.rad_v) {
@@ -282,9 +324,9 @@ function generarHtmlTarjeta(p) {
                 </table>
             </div>
             <div class="d-flex justify-content-between align-items-center mt-2 px-1">
-                <div class="small text-muted">
+                <div class="small text-muted text-truncate" style="max-width: 100%;">
                     <span class="text-success fw-bold">Últ. ${p.local}:</span> vs ${rl.ultimo.rival} (${rl.ultimo.marcador}) | 
-                    <span class="text-danger fw-bold">Últ. ${p.visitante}:</span> vs rv ${rv.ultimo.rival} (${rv.ultimo.marcador})
+                    <span class="text-danger fw-bold">Últ. ${p.visitante}:</span> vs ${rv.ultimo.rival} (${rv.ultimo.marcador})
                 </div>
             </div>
         `;
@@ -301,7 +343,7 @@ function generarHtmlTarjeta(p) {
         <div class="col-md-6">
             <div class="card card-match p-3">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="badge bg-light text-dark border">${p.competicion_nombre}</span>
+                    <span class="badge bg-light text-dark border text-truncate" style="max-width: 50%;">${p.competicion_nombre}</span>
                     <div class="d-flex align-items-center gap-2">
                         ${badgeEstado}
                         <span class="badge badge-hora">📅 ${p.fecha} 🕒 ${p.hora_ecuador} (ECU)</span>
@@ -309,8 +351,8 @@ function generarHtmlTarjeta(p) {
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center my-2">
-                    <h5 class="fw-bold mb-0 text-truncate" style="max-width: 75%;">${p.local} <span class="text-muted fw-normal">vs</span> ${p.visitante}</h5>
-                    <span class="badge bg-warning text-dark fw-bold">Conf: ${p.confianza}/10</span>
+                    <h5 class="fw-bold mb-0 text-truncate" style="max-width: 70%;">${p.local} <span class="text-muted fw-normal">vs</span> ${p.visitante}</h5>
+                    ${bloqueMarcadorCentral ? bloqueMarcadorCentral : `<span class="badge bg-warning text-dark fw-bold">Conf: ${p.confianza}/10</span>`}
                 </div>
 
                 ${bloqueMetricas}
@@ -345,7 +387,7 @@ async function sincronizarLiga() {
 
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Sincronizando...`;
-    resDiv.innerHTML = `<div class="alert alert-info py-2 small">Descargando métricas de ESPN y guardando en Supabase...</div>`;
+    resDiv.innerHTML = `<div class="alert alert-info py-2 small">Descargando métricas de ESPN y sincronizando partidos...</div>`;
 
     try {
         const resp = await fetch('/api/agregar_enlace', {
