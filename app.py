@@ -97,26 +97,18 @@ def get_db_connection():
                 url_limpia = env_url.replace("postgres://", "postgresql://", 1)
                 if "CHIqui18..%" in url_limpia and "CHIqui18..%25" not in url_limpia:
                     url_limpia = url_limpia.replace("CHIqui18..%", "CHIqui18..%25")
-                return psycopg2.connect(url_limpia, sslmode='require', connect_timeout=4)
+                return psycopg2.connect(url_limpia, sslmode='require', connect_timeout=3)
             except Exception as e:
-                print(f"[DB] Fallo conexion con DATABASE_URL: {e}")
+                print(f"[DB] Fallo conexion DATABASE_URL: {e}")
 
-        hosts_a_probar = [
-            "aws-1-us-west-2.pooler.supabase.com",
-            "aws-0-us-west-1.pooler.supabase.com"
-        ]
-        
-        for host in hosts_a_probar:
+        hosts = ["aws-1-us-west-2.pooler.supabase.com", "aws-0-us-west-1.pooler.supabase.com"]
+        for host in hosts:
             for port in [5432, 6543]:
                 try:
                     return psycopg2.connect(
-                        host=host,
-                        port=port,
-                        dbname="postgres",
-                        user="postgres.waldnnzetbbmbsyokzxp",
-                        password="CHIqui18..%",
-                        sslmode="require",
-                        connect_timeout=3
+                        host=host, port=port, dbname="postgres",
+                        user="postgres.waldnnzetbbmbsyokzxp", password="CHIqui18..%",
+                        sslmode="require", connect_timeout=2
                     )
                 except Exception:
                     pass
@@ -150,17 +142,13 @@ def ejecutar_sql(query, params=(), fetch=None):
     except Exception as ex:
         print(f"[SQL ERROR] {ex} | Query: {query}")
         if conn:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
+            try: conn.rollback()
+            except Exception: pass
         return [] if fetch == "all" else None
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            try: conn.close()
+            except Exception: pass
 
 def inicializar_bd():
     conn = None
@@ -252,10 +240,8 @@ def inicializar_bd():
         print(f"[INIT WARNING] {e}")
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            try: conn.close()
+            except Exception: pass
 
 inicializar_bd()
 
@@ -271,15 +257,11 @@ def obtener_tiempos_ecuador(valor_fecha):
     try:
         dt = None
         if isinstance(valor_fecha, datetime):
-            if valor_fecha.tzinfo is not None:
-                dt = valor_fecha.astimezone(tz_ecu)
-            else:
-                dt = valor_fecha.replace(tzinfo=timezone.utc).astimezone(tz_ecu)
+            dt = valor_fecha.astimezone(tz_ecu) if valor_fecha.tzinfo else valor_fecha.replace(tzinfo=timezone.utc).astimezone(tz_ecu)
         else:
             s = str(valor_fecha).strip().replace("Z", "+00:00")
             if "T00:00" in s or " 00:00:00" in s:
-                fecha_limpia = s.split("T")[0].split(" ")[0]
-                return fecha_limpia, "Por definir", s
+                return s.split("T")[0].split(" ")[0], "Por definir", s
 
             if "+" in s or ("-" in s[10:]):
                 dt_obj = datetime.fromisoformat(s)
@@ -305,7 +287,7 @@ def formatear_fecha_hora_ecuador(valor_fecha):
 # ==============================================================================
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HTTP_HEADERS)
-    with urllib.request.urlopen(req, timeout=8) as resp:
+    with urllib.request.urlopen(req, timeout=5) as resp:
         return resp.read().decode('utf-8', errors='ignore')
 
 def get_json(url):
@@ -323,10 +305,8 @@ def descargar_resumen_evento(codigo_liga, event_id):
                 for s in teams[i].get("statistics", []):
                     nm = s.get("name", "").lower()
                     lbl = s.get("label", "").lower()
-                    try:
-                        val = int(s.get("displayValue", 0))
-                    except (ValueError, TypeError):
-                        val = 0
+                    try: val = int(s.get("displayValue", 0))
+                    except (ValueError, TypeError): val = 0
                     if any(k in nm or k in lbl for k in ["corner", "corners", "woncorners"]):
                         res[f"c{pfx}"] = val
                     elif any(k in nm or k in lbl for k in ["yellowcard", "yellow_card", "redcard", "red_card", "totalcards"]):
@@ -365,15 +345,14 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             
             comp_info = ev.get("competitions", [{}])[0]
             fecha_cruda = comp_info.get("date") or ev.get("date")
-            fecha_ecu, hora_ecu, fecha_guardar = obtener_tiempos_ecuador(fecha_cruda)
+            _, _, fecha_guardar = obtener_tiempos_ecuador(fecha_cruda)
 
             status_obj = ev.get("status", {})
             type_obj = status_obj.get("type", {})
-            state_espn = type_obj.get("state", "").lower()      # "pre", "in", "post"
+            state_espn = type_obj.get("state", "").lower()
             completed = type_obj.get("completed", False)
             desc_status = type_obj.get("description", "").lower()
 
-            # Detección directa del estado de ESPN
             if state_espn == "in" or any(k in desc_status for k in ["in progress", "live", "en curso", "1st half", "2nd half", "halftime", "ht"]):
                 estado = "en_vivo"
             elif state_espn == "post" or completed or any(k in desc_status for k in ["final", "ft", "ended"]):
@@ -390,7 +369,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
                     INSERT INTO partidos 
                     (fixture_id, competicion_id, fecha, local, visitante, goles_local, goles_visitante,
                      corners_local, corners_visitante, tarjetas_local, tarjetas_visitante, offsides_local, offsides_visitante, estado)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?::timestamptz, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (fixture_id) DO UPDATE SET 
                         fecha = EXCLUDED.fecha,
                         goles_local = EXCLUDED.goles_local,
@@ -579,53 +558,45 @@ def api_alarmas_hoy():
         forzar = request.args.get('forzar', 'false').lower() == 'true'
         ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
+        # Sincronización rápida: solo el día actual de ayer, hoy y mañana para no saturar Render
         if forzar:
             ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
             codigos = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
-            
-            fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-3, 5)]
+            fechas_consulta = [
+                (ahora_ecuador - timedelta(days=1)).strftime("%Y%m%d"),
+                ahora_ecuador.strftime("%Y%m%d"),
+                (ahora_ecuador + timedelta(days=1)).strftime("%Y%m%d")
+            ]
             for cod in codigos:
                 for f_str in fechas_consulta:
-                    descargar_partidos_fecha(cod, f_str)
+                    try:
+                        descargar_partidos_fecha(cod, f_str)
+                    except Exception:
+                        pass
 
-        # Ventana de fechas: 3 días atrás y 5 días adelante con zona horaria explícita
-        fecha_desde = (ahora_ecuador - timedelta(days=3)).strftime("%Y-%m-%d 00:00:00-05:00")
-        fecha_hasta = (ahora_ecuador + timedelta(days=5)).strftime("%Y-%m-%d 23:59:59-05:00")
+        # Lectura universal: Traemos los últimos 150 partidos y filtramos en Python para evitar errores de SQL TIMESTAMPTZ
+        partidos_bd = ejecutar_sql("""
+            SELECT p.*, c.nombre as competicion_nombre 
+            FROM partidos p
+            LEFT JOIN competiciones c ON p.competicion_id = c.id
+            ORDER BY p.fecha DESC
+            LIMIT 150
+        """, fetch="all") or []
 
-        conn_check = get_db_connection()
-        is_pg = PG_DISPONIBLE and not isinstance(conn_check, sqlite3.Connection)
-        if conn_check:
-            conn_check.close()
-
-        # Consulta protegida contra fallos de tipo TIMESTAMPTZ en Supabase
-        if is_pg:
-            query_pg = """
-                SELECT p.*, c.nombre as competicion_nombre 
-                FROM partidos p
-                LEFT JOIN competiciones c ON p.competicion_id = c.id
-                WHERE p.fecha >= (%s)::timestamptz AND p.fecha <= (%s)::timestamptz
-                ORDER BY p.fecha ASC
-            """
-            conn = get_db_connection()
-            cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute(query_pg, (fecha_desde, fecha_hasta))
-            partidos_bd = [dict(r) for r in cur.fetchall()]
-            conn.close()
-        else:
-            partidos_bd = ejecutar_sql("""
-                SELECT p.*, c.nombre as competicion_nombre 
-                FROM partidos p
-                LEFT JOIN competiciones c ON p.competicion_id = c.id
-                WHERE p.fecha >= ? AND p.fecha <= ?
-                ORDER BY p.fecha ASC
-            """, (fecha_desde, fecha_hasta), fetch="all") or []
+        fecha_limite_min = (ahora_ecuador - timedelta(days=3)).strftime("%Y-%m-%d")
+        fecha_limite_max = (ahora_ecuador + timedelta(days=5)).strftime("%Y-%m-%d")
 
         alarmas = []
         for p in partidos_bd:
+            fecha_ecu, hora_ecu = formatear_fecha_hora_ecuador(p.get("fecha"))
+            
+            # Filtro en memoria por ventana móvil
+            if not (fecha_limite_min <= fecha_ecu <= fecha_limite_max):
+                continue
+
             loc = p.get("local", "")
             vis = p.get("visitante", "")
             res = auditar_partido_flexible(p.get("competicion_id"), loc, vis)
-            fecha_ecu, hora_ecu = formatear_fecha_hora_ecuador(p.get("fecha"))
 
             gl = p.get("goles_local", 0)
             gv = p.get("goles_visitante", 0)
@@ -655,6 +626,7 @@ def api_alarmas_hoy():
                 "rad_v": res.get("rad_v")
             })
 
+        alarmas.sort(key=lambda x: (x["fecha"], x["hora_ecuador"]))
         return jsonify({"success": True, "alarmas": alarmas})
     except Exception as e:
         print(f"[ALARMAS ERROR RETORNO SEGURO] {e}")
@@ -706,7 +678,7 @@ def api_agregar_enlace():
 
         return jsonify({
             "success": True, 
-            "msg": f"Liga '{cod_detectado}' sincronizada con éxito: {tot} partidos registrados con sus estadísticas."
+            "msg": f"Liga '{cod_detectado}' sincronizada: {tot} partidos actualizados."
         })
     except Exception as e:
         print(f"[ERROR AGREGAR ENLACE] {e}")
