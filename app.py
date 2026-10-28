@@ -89,7 +89,6 @@ LIGAS_INICIALES = [
 # ==============================================================================
 def get_db_connection():
     if PG_DISPONIBLE:
-        # 1. Intentar variable de entorno de Render
         env_url = os.environ.get("DATABASE_URL")
         if env_url:
             try:
@@ -100,7 +99,6 @@ def get_db_connection():
             except Exception as e:
                 print(f"[DB] Fallo conexion con DATABASE_URL: {e}")
 
-        # 2. Conexión directa a Supabase con parámetros separados
         hosts_a_probar = [
             "aws-1-us-west-2.pooler.supabase.com",
             "aws-0-us-west-1.pooler.supabase.com"
@@ -260,41 +258,52 @@ def inicializar_bd():
 inicializar_bd()
 
 # ==============================================================================
-# HORA ECUADOR (UTC-5)
+# GESTIÓN EXACTA DE HORA Y FECHA ECUADOR (UTC-5)
 # ==============================================================================
-def formatear_fecha_hora_ecuador(valor_fecha):
+def obtener_tiempos_ecuador(valor_fecha):
+    """
+    Convierte la fecha (cruda UTC de ESPN o ISO de la BD)
+    a fecha y hora de Ecuador (UTC-5). Retorna: (fecha_str, hora_str, iso_utc5)
+    """
+    tz_ecu = timezone(timedelta(hours=-5))
     if not valor_fecha:
-        return datetime.now().strftime("%Y-%m-%d"), "Por definir"
+        hoy = (datetime.now(timezone.utc).astimezone(tz_ecu)).strftime("%Y-%m-%d")
+        return hoy, "Por definir", datetime.now(timezone.utc).astimezone(tz_ecu).isoformat()
+
     try:
         dt = None
         if isinstance(valor_fecha, datetime):
             if valor_fecha.tzinfo is not None:
-                dt = valor_fecha.astimezone(timezone.utc) - timedelta(hours=5)
+                dt = valor_fecha.astimezone(tz_ecu)
             else:
-                dt = valor_fecha - timedelta(hours=5)
+                dt = valor_fecha.replace(tzinfo=timezone.utc).astimezone(tz_ecu)
         else:
-            s = str(valor_fecha).strip()
+            s = str(valor_fecha).strip().replace("Z", "+00:00")
             if "T00:00" in s or " 00:00:00" in s:
-                return s.split("T")[0].split(" ")[0], "Por definir"
+                fecha_limpia = s.split("T")[0].split(" ")[0]
+                return fecha_limpia, "Por definir", s
 
-            s_iso = s.replace("Z", "+00:00")
-            if "+" in s_iso or ("-" in s_iso[10:]):
-                dt_obj = datetime.fromisoformat(s_iso)
-                dt = dt_obj.astimezone(timezone.utc) - timedelta(hours=5) if dt_obj.tzinfo else dt_obj - timedelta(hours=5)
+            if "+" in s or ("-" in s[10:]):
+                dt_obj = datetime.fromisoformat(s)
+                dt = dt_obj.astimezone(tz_ecu) if dt_obj.tzinfo else dt_obj.replace(tzinfo=timezone.utc).astimezone(tz_ecu)
             else:
                 dt_obj = datetime.fromisoformat(s)
-                dt = dt_obj - timedelta(hours=5)
+                dt = dt_obj.replace(tzinfo=timezone.utc).astimezone(tz_ecu)
 
         if dt:
-            return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M")
+            return dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M"), dt.isoformat()
     except Exception:
         pass
 
     s_raw = str(valor_fecha)
-    return s_raw[:10], "Por definir"
+    return s_raw[:10], "Por definir", s_raw
+
+def formatear_fecha_hora_ecuador(valor_fecha):
+    f_ecu, h_ecu, _ = obtener_tiempos_ecuador(valor_fecha)
+    return f_ecu, h_ecu
 
 # ==============================================================================
-# DESCARGA DE DATOS REALES ESPN
+# DESCARGA Y SINCRONIZACIÓN DE DATOS REALES ESPN
 # ==============================================================================
 def fetch_url(url):
     req = urllib.request.Request(url, headers=HTTP_HEADERS)
@@ -356,11 +365,26 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             gl = int(loc_c.get("score", 0) or 0)
             gv = int(vis_c.get("score", 0) or 0)
             
-            st = descargar_resumen_evento(codigo_liga, fix_id)
+            # Comprobación de estado finalizado / en vivo / programado
+            status_obj = ev.get("status", {})
+            completed = status_obj.get("type", {}).get("completed", False)
+            desc_status = status_obj.get("type", {}).get("description", "").lower()
+            
+            if completed or "final" in desc_status or "ft" in desc_status:
+                estado = "finalizado"
+            elif any(k in desc_status for k in ["in progress", "live", "en curso", "1st half", "2nd half", "halftime"]):
+                estado = "en_vivo"
+            else:
+                estado = "programado"
+
+            # Si el partido ya concluyó, traemos córners, tarjetas y offsides reales
+            st = {"cl": 0, "cv": 0, "tl": 0, "tv": 0, "ol": 0, "ov": 0}
+            if estado == "finalizado":
+                st = descargar_resumen_evento(codigo_liga, fix_id)
             
             comp_info = ev.get("competitions", [{}])[0]
-            fecha_iso = comp_info.get("date") or ev.get("date") or datetime.now().isoformat()
-            estado = "finalizado" if ev.get("status", {}).get("type", {}).get("completed", False) else "programado"
+            fecha_cruda = comp_info.get("date") or ev.get("date")
+            _, _, fecha_guardar = obtener_tiempos_ecuador(fecha_cruda)
 
             if is_pg:
                 ejecutar_sql("""
@@ -372,23 +396,35 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
                         fecha = EXCLUDED.fecha,
                         goles_local = EXCLUDED.goles_local,
                         goles_visitante = EXCLUDED.goles_visitante,
-                        corners_local = EXCLUDED.corners_local,
-                        corners_visitante = EXCLUDED.corners_visitante,
-                        tarjetas_local = EXCLUDED.tarjetas_local,
-                        tarjetas_visitante = EXCLUDED.tarjetas_visitante,
-                        offsides_local = EXCLUDED.offsides_local,
-                        offsides_visitante = EXCLUDED.offsides_visitante,
+                        corners_local = CASE WHEN EXCLUDED.estado = 'finalizado' THEN EXCLUDED.corners_local ELSE partidos.corners_local END,
+                        corners_visitante = CASE WHEN EXCLUDED.estado = 'finalizado' THEN EXCLUDED.corners_visitante ELSE partidos.corners_visitante END,
+                        tarjetas_local = CASE WHEN EXCLUDED.estado = 'finalizado' THEN EXCLUDED.tarjetas_local ELSE partidos.tarjetas_local END,
+                        tarjetas_visitante = CASE WHEN EXCLUDED.estado = 'finalizado' THEN EXCLUDED.tarjetas_visitante ELSE partidos.tarjetas_visitante END,
+                        offsides_local = CASE WHEN EXCLUDED.estado = 'finalizado' THEN EXCLUDED.offsides_local ELSE partidos.offsides_local END,
+                        offsides_visitante = CASE WHEN EXCLUDED.estado = 'finalizado' THEN EXCLUDED.offsides_visitante ELSE partidos.offsides_visitante END,
                         estado = EXCLUDED.estado,
                         updated_at = NOW()
-                """, (fix_id, codigo_liga, fecha_iso, loc, vis, gl, gv,
+                """, (fix_id, codigo_liga, fecha_guardar, loc, vis, gl, gv,
                       st["cl"], st["cv"], st["tl"], st["tv"], st["ol"], st["ov"], estado))
             else:
                 ejecutar_sql("""
-                    INSERT OR REPLACE INTO partidos 
+                    INSERT INTO partidos 
                     (fixture_id, competicion_id, fecha, local, visitante, goles_local, goles_visitante,
-                     corners_local, corners_visitante, tarjetas_local, tarjetas_visitante, offsides_local, offsides_visitante, estado)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (fix_id, codigo_liga, fecha_iso, loc, vis, gl, gv,
+                     corners_local, corners_visitante, tarjetas_local, tarjetas_visitante, offsides_local, offsides_visitante, estado, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ON CONFLICT (fixture_id) DO UPDATE SET 
+                        fecha = excluded.fecha,
+                        goles_local = excluded.goles_local,
+                        goles_visitante = excluded.goles_visitante,
+                        corners_local = CASE WHEN excluded.estado = 'finalizado' THEN excluded.corners_local ELSE partidos.corners_local END,
+                        corners_visitante = CASE WHEN excluded.estado = 'finalizado' THEN excluded.corners_visitante ELSE partidos.corners_visitante END,
+                        tarjetas_local = CASE WHEN excluded.estado = 'finalizado' THEN excluded.tarjetas_local ELSE partidos.tarjetas_local END,
+                        tarjetas_visitante = CASE WHEN excluded.estado = 'finalizado' THEN excluded.tarjetas_visitante ELSE partidos.tarjetas_visitante END,
+                        offsides_local = CASE WHEN excluded.estado = 'finalizado' THEN excluded.offsides_local ELSE partidos.offsides_local END,
+                        offsides_visitante = CASE WHEN excluded.estado = 'finalizado' THEN excluded.offsides_visitante ELSE partidos.offsides_visitante END,
+                        estado = excluded.estado,
+                        updated_at = datetime('now')
+                """, (fix_id, codigo_liga, fecha_guardar, loc, vis, gl, gv,
                       st["cl"], st["cv"], st["tl"], st["tv"], st["ol"], st["ov"], estado))
             total_guardados += 1
             
@@ -397,7 +433,7 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
         return 0, str(e)
 
 # ==============================================================================
-# AUDITORÍA DE CANCHA: ÚLTIMO PARTIDO INDIVIDUAL + PROMEDIO 5 ENCUENTROS
+# AUDITORÍA DE CANCHA: RADIOGRAFÍA CON HISTORIAL COMPLETO
 # ==============================================================================
 def auditar_partido_flexible(competicion_id, local, visitante):
     def obtener_radiografia_club(club):
@@ -544,20 +580,30 @@ def api_alarmas_hoy():
         forzar = request.args.get('forzar', 'false').lower() == 'true'
         ahora_ecuador = datetime.now(timezone.utc) - timedelta(hours=5)
 
+        # Si se presiona "Escaneo en Vivo" o se fuerza actualización
         if forzar:
             ligas_sync = ejecutar_sql("SELECT id FROM competiciones WHERE activa = 1", fetch="all") or []
             codigos = [l["id"] for l in ligas_sync] if ligas_sync else [l[0] for l in LIGAS_INICIALES]
-            fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-5, 4)]
+            
+            # Consultamos los últimos 3 días (para actualizar partidos terminados)
+            # y los siguientes 4 días (para capturar partidos programados y fechas dobles)
+            fechas_consulta = [(ahora_ecuador + timedelta(days=i)).strftime("%Y%m%d") for i in range(-3, 5)]
             for cod in codigos:
                 for f_str in fechas_consulta:
                     descargar_partidos_fecha(cod, f_str)
+
+        # VENTANA VISUAL DINÁMICA: Muestra desde 3 días atrás hasta 5 días adelante.
+        # Los partidos más viejos NO se borran de la base de datos (se usan para la radiografía).
+        fecha_desde = (ahora_ecuador - timedelta(days=3)).strftime("%Y-%m-%d 00:00:00")
+        fecha_hasta = (ahora_ecuador + timedelta(days=5)).strftime("%Y-%m-%d 23:59:59")
 
         partidos_bd = ejecutar_sql("""
             SELECT p.*, c.nombre as competicion_nombre 
             FROM partidos p
             LEFT JOIN competiciones c ON p.competicion_id = c.id
-            ORDER BY p.fecha DESC LIMIT 200
-        """, fetch="all") or []
+            WHERE p.fecha >= ? AND p.fecha <= ?
+            ORDER BY p.fecha ASC
+        """, (fecha_desde, fecha_hasta), fetch="all") or []
 
         alarmas = []
         for p in partidos_bd:
@@ -565,6 +611,10 @@ def api_alarmas_hoy():
             vis = p.get("visitante", "")
             res = auditar_partido_flexible(p.get("competicion_id"), loc, vis)
             fecha_ecu, hora_ecu = formatear_fecha_hora_ecuador(p.get("fecha"))
+
+            gl = p.get("goles_local", 0)
+            gv = p.get("goles_visitante", 0)
+            estado_real = p.get("estado", "programado")
 
             alarmas.append({
                 "fixture_id": p.get("fixture_id"),
@@ -574,8 +624,10 @@ def api_alarmas_hoy():
                 "hora_ecuador": hora_ecu,
                 "local": loc,
                 "visitante": vis,
-                "estado": p.get("estado", "programado"),
-                "marcador": f"{p.get('goles_local', 0)} - {p.get('goles_visitante', 0)}" if p.get("estado") == "finalizado" else None,
+                "estado": estado_real,
+                "goles_local": gl,
+                "goles_visitante": gv,
+                "marcador": f"{gl} - {gv}" if estado_real == "finalizado" else None,
                 "confianza": res.get("indice_confianza", 4),
                 "alerta_riesgo": res.get("alerta_riesgo", ""),
                 "mercado_recomendado": res.get("mercado", ""),
@@ -620,13 +672,16 @@ def api_agregar_enlace():
         if not cod_detectado:
             return jsonify({"success": False, "msg": "No se reconoció la liga."})
 
+        # Insertar o activar en competiciones
         ejecutar_sql("""
             INSERT INTO competiciones (id, nombre, pais, activa) VALUES (?, ?, 'Internacional', 1)
             ON CONFLICT (id) DO UPDATE SET activa = 1
         """, (cod_detectado, cod_detectado.upper()))
 
+        # Sincronización del día solicitado
         tot, _ = descargar_partidos_fecha(cod_detectado, fecha_req)
         
+        # Historial de los 3 días anteriores para nutrir la radiografía de 5 partidos
         try:
             fecha_dt = datetime.strptime(fecha_req, "%Y%m%d")
             for i in range(1, 4):
