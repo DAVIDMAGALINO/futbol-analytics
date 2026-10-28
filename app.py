@@ -263,10 +263,6 @@ inicializar_bd()
 # GESTIÓN EXACTA DE HORA Y FECHA ECUADOR (UTC-5)
 # ==============================================================================
 def obtener_tiempos_ecuador(valor_fecha):
-    """
-    Convierte la fecha (cruda UTC de ESPN o ISO de la BD)
-    a fecha y hora de Ecuador (UTC-5). Retorna: (fecha_str, hora_str, iso_utc5)
-    """
     tz_ecu = timezone(timedelta(hours=-5))
     if not valor_fecha:
         dt_ahora = datetime.now(timezone.utc).astimezone(tz_ecu)
@@ -372,35 +368,18 @@ def descargar_partidos_fecha(codigo_liga, fecha_str):
             fecha_ecu, hora_ecu, fecha_guardar = obtener_tiempos_ecuador(fecha_cruda)
 
             status_obj = ev.get("status", {})
-            completed = status_obj.get("type", {}).get("completed", False)
-            desc_status = status_obj.get("type", {}).get("description", "").lower()
+            type_obj = status_obj.get("type", {})
+            state_espn = type_obj.get("state", "").lower()      # "pre", "in", "post"
+            completed = type_obj.get("completed", False)
+            desc_status = type_obj.get("description", "").lower()
 
-            # Cálculo de minutos transcurridos para blindar el estado EN VIVO vs FINALIZADO
-            minutos_transcurridos = -1
-            try:
-                dt_partido = datetime.fromisoformat(fecha_guardar)
-                ahora_ecu = datetime.now(timezone(timedelta(hours=-5)))
-                delta = ahora_ecu - dt_partido
-                minutos_transcurridos = delta.total_seconds() / 60
-            except Exception:
-                pass
-
-            if minutos_transcurridos < 0:
-                estado = "programado"
-            elif 0 <= minutos_transcurridos < 115:
-                # Si está dentro de la franja normal de juego (0 a 115 min)
-                if completed and minutos_transcurridos < 105:
-                    estado = "en_vivo"
-                elif any(k in desc_status for k in ["in progress", "live", "en curso", "1st half", "2nd half", "halftime", "ht"]) or completed:
-                    estado = "en_vivo"
-                else:
-                    estado = "en_vivo"
+            # DETECCIÓN DIRECTA Y ROBUSTA DE ESTADO
+            if state_espn == "in" or any(k in desc_status for k in ["in progress", "live", "en curso", "1st half", "2nd half", "halftime", "ht"]):
+                estado = "en_vivo"
+            elif state_espn == "post" or completed or any(k in desc_status for k in ["final", "ft", "ended"]):
+                estado = "finalizado"
             else:
-                # Si ya pasaron más de 115 minutos desde el inicio oficial
-                if completed or any(k in desc_status for k in ["final", "ft", "ended"]):
-                    estado = "finalizado"
-                else:
-                    estado = "finalizado"
+                estado = "programado"
 
             st = {"cl": 0, "cv": 0, "tl": 0, "tv": 0, "ol": 0, "ov": 0}
             if estado == "finalizado":
